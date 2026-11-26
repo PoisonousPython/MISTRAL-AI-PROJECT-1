@@ -24,10 +24,10 @@ typedef HRESULT(WINAPI* PFN_D3D11CreateDeviceAndSwapChain)(
     D3D_FEATURE_LEVEL*);
 typedef HRESULT(WINAPI* PFN_D3D10CreateDeviceAndSwapChain)(
     IDXGIAdapter*, D3D10_DRIVER_TYPE, HMODULE, UINT, UINT, DXGI_SWAP_CHAIN_DESC*,
-    ID3D10Device**, IDXGISwapChain**);
+    IDXGISwapChain**, ID3D10Device**);
 typedef HRESULT(WINAPI* PFN_D3D10CreateDeviceAndSwapChain1)(
-    IDXGIAdapter*, D3D10_DRIVER_TYPE, HMODULE, UINT, D3D10_FEATURE_LEVEL_1, UINT,
-    DXGI_SWAP_CHAIN_DESC*, ID3D10Device1**, IDXGISwapChain**);
+    IDXGIAdapter*, D3D10_DRIVER_TYPE, HMODULE, UINT, D3D10_FEATURE_LEVEL1, UINT,
+    DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**, ID3D10Device1**);
 
 typedef HRESULT(STDMETHODCALLTYPE* PFN_Present)(IDXGISwapChain*, UINT, UINT);
 typedef HRESULT(STDMETHODCALLTYPE* PFN_Present1)(IDXGISwapChain1*, UINT, UINT,
@@ -202,22 +202,22 @@ HRESULT WINAPI HookD3D11CreateDeviceAndSwapChain(
 HRESULT WINAPI HookD3D10CreateDeviceAndSwapChain(IDXGIAdapter* adapter, D3D10_DRIVER_TYPE type,
                                                  HMODULE software, UINT flags, UINT sdk_version,
                                                  DXGI_SWAP_CHAIN_DESC* desc,
-                                                 ID3D10Device** device,
-                                                 IDXGISwapChain** swapchain) {
+                                                 IDXGISwapChain** swapchain,
+                                                 ID3D10Device** device) {
     const HRESULT hr = RealD3D10CreateDeviceAndSwapChain(adapter, type, software, flags,
-                                                         sdk_version, desc, device, swapchain);
+                                                         sdk_version, desc, swapchain, device);
     if (SUCCEEDED(hr) && swapchain && *swapchain) HookSwapchain(*swapchain);
     return hr;
 }
 
 HRESULT WINAPI HookD3D10CreateDeviceAndSwapChain1(IDXGIAdapter* adapter, D3D10_DRIVER_TYPE type,
                                                   HMODULE software, UINT flags,
-                                                  D3D10_FEATURE_LEVEL_1 level, UINT sdk_version,
+                                                  D3D10_FEATURE_LEVEL1 level, UINT sdk_version,
                                                   DXGI_SWAP_CHAIN_DESC* desc,
-                                                  ID3D10Device1** device,
-                                                  IDXGISwapChain** swapchain) {
+                                                  IDXGISwapChain** swapchain,
+                                                  ID3D10Device1** device) {
     const HRESULT hr = RealD3D10CreateDeviceAndSwapChain1(adapter, type, software, flags, level,
-                                                          sdk_version, desc, device, swapchain);
+                                                          sdk_version, desc, swapchain, device);
     if (SUCCEEDED(hr) && swapchain && *swapchain) HookSwapchain(*swapchain);
     return hr;
 }
