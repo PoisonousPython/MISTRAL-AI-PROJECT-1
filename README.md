@@ -16,6 +16,28 @@ Everything here is external. The governor never modifies game code, never patche
 instructions, and never touches a game's internal allocator or scheduler — see
 [Honest limitations](#honest-limitations).
 
+## For players (no coding needed)
+
+1. **Download** the latest thermal-governor-win64.zip from the Releases page and
+   unzip it anywhere (e.g. your Desktop).
+2. **Double-click `Launch Governor.bat`** (allow it to run if Windows asks).
+3. **Pick your game** in the file browser, answer four simple questions
+   (frame limit, max CPU %, reserved cores, pacing precision), and the game starts
+   with the governor active.
+4. Done. The settings are saved to `thermal_governor.ini` in the same folder —
+   running the helper again updates them.
+
+Notes for players:
+
+- **Warning — anti-cheat:** use on single-player games or your own builds. Help or
+  online anti-cheat (EAC/BattlEye-style) can treat the injected DLL as a cheat and
+  ban the account.
+- Everything the helper did is written to `governor.log` in the same folder.
+- If Windows says PowerShell is blocked, right-click `governor-wizard.ps1` →
+  Properties → check **Unblock** → OK, then run the .bat again.
+- The build methods below are only needed if you want to compile it yourself;
+  the release zip contains ready-built files.
+
 ## What it does
 
 | Control | Mechanism | Config |
