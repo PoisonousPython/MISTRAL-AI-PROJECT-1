@@ -1,0 +1,188 @@
+#include "tgov_types.h"
+
+#include <chrono>
+#include <cstdio>
+#include <cstring>
+
+using namespace tgov;
+
+static int g_failures = 0;
+
+#define CHECK(cond, msg)                                        \
+    do {                                                        \
+        if (cond) {                                             \
+            std::printf("PASS: %s\n", msg);                     \
+        } else {                                                \
+            std::printf("FAIL: %s (line %d)\n", msg, __LINE__); \
+            ++g_failures;                                       \
+        }                                                       \
+    } while (0)
+
+namespace {
+
+constexpr std::size_t kImgSize = 0x1000;
+constexpr uint32_t kImportDir = 0x200;
+constexpr uint32_t kDesc0 = 0x200;
+constexpr uint32_t kDesc1 = 0x214;
+constexpr uint32_t kOft0 = 0x260;
+constexpr uint32_t kIat0 = 0x280;
+constexpr uint32_t kOft1 = 0x2A0;
+constexpr uint32_t kIat1 = 0x2C0;
+constexpr uint32_t kName0 = 0x320;
+constexpr uint32_t kMod2 = 0x340;
+constexpr uint32_t kHint0 = 0x380;
+constexpr uint32_t kHint1 = 0x3B0;
+
+void Put16(uint8_t* p, uint16_t v) { std::memcpy(p, &v, 2); }
+void Put32(uint8_t* p, uint32_t v) { std::memcpy(p, &v, 4); }
+void Put64(uint8_t* p, uint64_t v) { std::memcpy(p, &v, 8); }
+
+void PutNameAt(uint8_t* img, uint32_t rva, const char* s) {
+    std::snprintf(reinterpret_cast<char*>(img + rva), 64, "%s", s);
+}
+
+uint32_t HintName(uint8_t* img, uint32_t rva, const char* name) {
+    Put16(img + rva, 0);
+    std::snprintf(reinterpret_cast<char*>(img + rva + 2), 48, "%s", name);
+    return rva;
+}
+
+void BuildPe64(uint8_t* img) {
+    std::memset(img, 0, kImgSize);
+    Put16(img, 0x5A4D);
+    Put32(img + 0x3C, 0x80);
+    Put32(img + 0x80, 0x00004550);
+    Put16(img + 0x84, 0x8664);
+    Put16(img + 0x86, 3);
+    Put16(img + 0x94, 0xF0);
+    Put16(img + 0x96, 0x0022);
+
+    uint8_t* opt = img + 0x80 + 24;
+    Put16(opt, 0x20B);
+
+    uint8_t* dirs = opt + 112;
+    Put32(dirs + 1 * 8 + 0, kImportDir);
+    Put32(dirs + 1 * 8 + 4, 0x80);
+
+    Put32(img + kDesc0 + 0, kOft0);
+    Put32(img + kDesc0 + 12, kName0);
+    Put32(img + kDesc0 + 16, kIat0);
+    Put32(img + kDesc1 + 0, kOft1);
+    Put32(img + kDesc1 + 12, kMod2);
+    Put32(img + kDesc1 + 16, kIat1);
+
+    PutNameAt(img, kName0, "d3d9.dll");
+    PutNameAt(img, kMod2, "DXGI.DLL");
+    HintName(img, kHint0, "Direct3DCreate9");
+    HintName(img, kHint1, "Present");
+
+    Put64(img + kOft0 + 0, kHint0);
+    Put64(img + kOft0 + 8, kHint0);  // same function imported twice under one name slot pair
+    Put64(img + kOft0 + 16, 0x00000000);
+
+    Put64(img + kIat0 + 0, 0xAAAA0000AAAA0001ULL);
+    Put64(img + kIat0 + 8, 0xAAAA0000AAAA0002ULL);
+    Put64(img + kIat0 + 16, 0);
+
+    Put64(img + kOft1 + 0, kHint1);
+    Put64(img + kIat1 + 0, 0xBBBB000000000001ULL);
+    Put64(img + kIat1 + 8, 0);
+}
+
+}  // namespace
+
+int main() {
+    {
+        uint8_t img[kImgSize];
+        BuildPe64(img);
+
+        static int marker = 0;
+        void* detour = const_cast<int*>(&marker);
+
+        auto slots = pe::FindIatSlots(img, "D3D9.DLL", "Direct3DCreate9");
+        CHECK(slots.size() == 2, "PE64: both import sites found (case-insensitive module)");
+        void* orig = nullptr;
+        const unsigned hits = pe::OverwriteIatSlots(slots, detour, &orig);
+        CHECK(hits == 2, "PE64: both sites overwritten");
+        CHECK(orig == reinterpret_cast<void*>(0xAAAA0000AAAA0001ULL),
+              "PE64: original pointer captured");
+        void** sl = reinterpret_cast<void**>(img + kIat0);
+        CHECK(sl[0] == detour && sl[1] == detour, "PE64: IAT slots point at detour");
+
+        const unsigned again =
+            pe::OverwriteIatSlots(pe::FindIatSlots(img, "d3d9.dll", "Direct3DCreate9"), detour, nullptr);
+        CHECK(again == 0, "PE64: repeat hook is idempotent");
+
+        CHECK(pe::FindIatSlots(img, "d3d9.dll", "EndScene").empty(),
+              "PE64: unknown function finds no slot");
+
+        auto dxgi_slots = pe::FindIatSlots(img, "dxgi.dll", "Present");
+        CHECK(dxgi_slots.size() == 1, "PE64: second module descriptor matched");
+        CHECK(pe::OverwriteIatSlots(dxgi_slots, detour, nullptr) == 1, "PE64: dxgi slot hooked");
+        CHECK(*reinterpret_cast<void**>(img + kIat1) == detour, "PE64: dxgi IAT slot points at detour");
+
+        uint8_t alien[64];
+        std::memset(alien, 0, sizeof(alien));
+        std::memcpy(alien, "NZ", 2);
+        CHECK(pe::FindIatSlots(alien, "d3d9.dll", "Direct3DCreate9").empty(),
+              "PE: non-PE buffer rejected");
+
+        std::printf("-> PE parse: no crash on malformed input\n");
+    }
+
+    {
+        Config c;
+        CHECK(LoadConfigFromIni("config/thermal_governor.ini", c), "ini: sample file parses");
+        CHECK(c.enabled, "ini: enabled=true");
+        CHECK(c.cpu_rate_permille == 7500, "ini: cpu_rate_permille=7500");
+        CHECK(c.priority_class == "below_normal", "ini: priority_class=below_normal");
+        CHECK(c.fps_global == 60.0, "ini: fps_limit=60");
+        CHECK(c.vulkan_pace_point == "queue_present", "ini: vulkan pace point");
+    }
+
+    {
+        const char* inifile = "tests_tmp.ini";
+        Config c2;
+        FILE* f = std::fopen(inifile, "wb");
+        std::fputs(
+            "[cpu]\naffinity_mask = 0x00FF\nreserve_cores = 3\n[framerate]\nfps_d3d9 = 144.5\n",
+            f);
+        std::fclose(f);
+        LoadConfigFromIni(inifile, c2);
+        std::remove(inifile);
+        CHECK(c2.affinity_mask == 0xFF, "ini: mask 0x00FF parsed");
+        CHECK(c2.fps_d3d9 == 144.5, "ini: fps_d3d9=144.5 parsed");
+        CHECK(c2.reserve_core_count == 3, "ini: reserve_cores=3 parsed");
+    }
+
+    {
+        Pacer p;
+        p.SetRate(0.0);
+        const auto t0 = std::chrono::steady_clock::now();
+        p.Wait();
+        p.Wait();
+        const auto dt = std::chrono::steady_clock::now() - t0;
+        CHECK(dt < std::chrono::milliseconds{1}, "pacer: rate 0 => unthrottled");
+
+        p.SetRate(2000.0);
+        const auto a = std::chrono::steady_clock::now();
+        for (int i = 0; i < 4; ++i) p.Wait();
+        const auto d = std::chrono::duration_cast<std::chrono::microseconds>(
+                           std::chrono::steady_clock::now() - a)
+                           .count();
+        CHECK(d >= 1400, "pacer: 4x 2000fps waits >= ~1.5ms total");
+        CHECK(d < 6000, "pacer: 4x 2000fps waits < 6ms total");
+
+        p.SetRate(30.0);
+        p.Wait();
+        const auto b = std::chrono::steady_clock::now();
+        p.Wait();
+        const auto d2 = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - b)
+                            .count();
+        CHECK(d2 >= 31, "pacer: first paced wait spans a full 33ms interval");
+    }
+
+    std::printf("%s\n", g_failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED");
+    return g_failures == 0 ? 0 : 1;
+}
