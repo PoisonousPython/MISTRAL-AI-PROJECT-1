@@ -10,8 +10,6 @@
 
 namespace tgov {
 
-double EffectiveFps(double per_api) { return per_api > 0.0 ? per_api : 0.0; }
-
 void Pacer::SetSpinGuard(unsigned spin_ms) { spin_ms_ = spin_ms; }
 
 void Pacer::SetRate(double fps) {
@@ -43,21 +41,25 @@ void Pacer::PreciseSleep(std::chrono::steady_clock::duration remaining) {
 
 void Pacer::Wait() {
     if (interval_.count() == 0) return;
-    std::lock_guard<std::mutex> lock(mu_);
-    const auto now = std::chrono::steady_clock::now();
-    if (last_.time_since_epoch().count() != 0) {
-        const auto wake = last_ + interval_;
-        if (now < wake) {
-            PreciseSleep(wake - now);
-            last_ = wake;
-            ++paced_;
+    std::chrono::steady_clock::time_point wake;
+    bool sleep_needed = false;
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        const auto now = std::chrono::steady_clock::now();
+        if (last_.time_since_epoch().count() == 0) {
+            last_ = now;
             return;
         }
-        last_ = now;
+        wake = last_ + interval_;
+        if (now < wake) {
+            last_ = wake;
+            sleep_needed = true;
+        } else {
+            last_ = now;
+        }
         ++paced_;
-        return;
     }
-    last_ = now;
+    if (sleep_needed) PreciseSleep(wake - std::chrono::steady_clock::now());
 }
 
 }  // namespace tgov

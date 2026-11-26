@@ -156,6 +156,37 @@ int main() {
     }
 
     {
+        const char* inifile = "tests_tmp.ini";
+        Config c3;
+        FILE* f = std::fopen(inifile, "wb");
+        std::fputs(
+            "[cpu]\ncpu_rate_permille = -50\nreserve_cores = -1\nthread_sweep_ms = -100\n"
+            "[memory]\ncommit_limit_mb = -1\n"
+            "[pacing]\nspin_guard_ms = -5\n[framerate]\nfps_limit = -30\n",
+            f);
+        std::fclose(f);
+        LoadConfigFromIni(inifile, c3);
+        std::remove(inifile);
+        CHECK(c3.cpu_rate_permille == 0, "ini: negative cpu_rate clamps to 0 (no cap)");
+        CHECK(c3.reserve_core_count == 0, "ini: negative reserve_cores clamps to 0");
+        CHECK(c3.thread_sweep_ms == 50, "ini: negative thread_sweep clamps to minimum 50");
+        CHECK(c3.commit_limit_mb == 0, "ini: negative commit limit clamps to 0");
+        CHECK(c3.spin_guard_ms == 0, "ini: negative spin guard clamps to 0");
+        CHECK(c3.fps_global <= 0.0, "ini: negative fps means uncapped");
+
+        FILE* f2 = std::fopen(inifile, "wb");
+        std::fputs(
+            "[cpu]\ncpu_rate_permille = 99999\nthread_sweep_ms = 999999\n[pacing]\nspin_guard_ms = 999\n",
+            f2);
+        std::fclose(f2);
+        LoadConfigFromIni(inifile, c3);
+        std::remove(inifile);
+        CHECK(c3.cpu_rate_permille == 10000, "ini: oversized cpu_rate clamps to 10000");
+        CHECK(c3.thread_sweep_ms == 60000, "ini: oversized thread_sweep clamps to 60000");
+        CHECK(c3.spin_guard_ms == 15, "ini: oversized spin_guard clamps to 15");
+    }
+
+    {
         Pacer p;
         p.SetRate(0.0);
         const auto t0 = std::chrono::steady_clock::now();

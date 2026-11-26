@@ -64,8 +64,8 @@ unsigned long long BuildThreadMask() {
         }
         const unsigned n = c.reserve_core_count;
         if (n >= 64) return 0;
-        unsigned long long reserved = (n >= 64) ? ~0ULL : ((1ULL << n) - 1ULL);
-        unsigned long long mask = all & ~reserved;
+        const unsigned long long reserved = (1ULL << n) - 1ULL;
+        const unsigned long long mask = all & ~reserved;
         return mask ? mask : all;
     }
     return 0;
@@ -188,7 +188,7 @@ void ApplyJobLimits() {
 
     if (c.cpu_rate_permille) {
         JOBOBJECT_CPU_RATE_CONTROL_INFORMATION rate{};
-        rate.CpuRate = c.cpu_rate_permille * 10;
+        rate.CpuRate = c.cpu_rate_permille;
         rate.ControlFlags = JOB_OBJECT_CPU_RATE_CONTROL_ENABLE | JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP;
         if (!SetInformationJobObject(g_job, JobObjectCpuRateControlInformation, &rate, sizeof(rate))) {
             g_last_error_code = GetLastError();

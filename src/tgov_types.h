@@ -56,7 +56,6 @@ private:
     unsigned long long paced_ = 0;
 };
 
-double EffectiveFps(double per_api);
 
 bool ParseBool(const std::string& v, bool def);
 double ParseNumber(const std::string& v, double def);

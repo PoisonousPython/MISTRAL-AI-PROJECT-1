@@ -70,20 +70,23 @@ bool LoadConfigFromIni(const std::string& path, Config& out) {
 
     out.enabled = ParseBool(kv["governor.enabled"], out.enabled);
 
-    out.cpu_rate_permille =
-        static_cast<unsigned>(ParseNumber(kv["cpu.cpu_rate_permille"], static_cast<double>(out.cpu_rate_permille)));
+    const double cpu_rate =
+        ParseNumber(kv["cpu.cpu_rate_permille"], static_cast<double>(out.cpu_rate_permille));
+    out.cpu_rate_permille = cpu_rate < 0.0 ? 0u : static_cast<unsigned>(cpu_rate);
     if (out.cpu_rate_permille > 10000) out.cpu_rate_permille = 10000;
     out.affinity_mask = ParseMask(kv["cpu.affinity_mask"], out.affinity_mask);
-    out.reserve_core_count =
-        static_cast<unsigned>(ParseNumber(kv["cpu.reserve_cores"], static_cast<double>(out.reserve_core_count)));
+    const double reserve =
+        ParseNumber(kv["cpu.reserve_cores"], static_cast<double>(out.reserve_core_count));
+    out.reserve_core_count = reserve < 0.0 ? 0u : static_cast<unsigned>(reserve);
     out.priority_class = Trimmed(kv["cpu.priority_class"]);
     out.reapply_thread_sched = ParseBool(kv["cpu.apply_to_new_threads"], out.reapply_thread_sched);
-    out.thread_sweep_ms =
-        static_cast<unsigned>(ParseNumber(kv["cpu.thread_sweep_ms"], static_cast<double>(out.thread_sweep_ms)));
-    if (out.thread_sweep_ms < 50) out.thread_sweep_ms = 50;
+    const double sweep =
+        ParseNumber(kv["cpu.thread_sweep_ms"], static_cast<double>(out.thread_sweep_ms));
+    out.thread_sweep_ms = sweep < 50.0 ? 50u : static_cast<unsigned>(sweep < 60000.0 ? sweep : 60000.0);
 
-    out.commit_limit_mb = static_cast<unsigned long long>(
-        ParseNumber(kv["memory.commit_limit_mb"], static_cast<double>(out.commit_limit_mb)));
+    const double commit =
+        ParseNumber(kv["memory.commit_limit_mb"], static_cast<double>(out.commit_limit_mb));
+    out.commit_limit_mb = commit < 0.0 ? 0ULL : static_cast<unsigned long long>(commit);
 
     out.dxgi_force_sync_interval =
         static_cast<int>(ParseNumber(kv["present.dxgi_force_sync_interval"], out.dxgi_force_sync_interval));
@@ -94,8 +97,9 @@ bool LoadConfigFromIni(const std::string& path, Config& out) {
     out.fps_dxgi = ParseNumber(kv["framerate.fps_dxgi"], out.fps_dxgi);
     out.fps_vulkan = ParseNumber(kv["framerate.fps_vulkan"], out.fps_vulkan);
     out.fps_opengl = ParseNumber(kv["framerate.fps_opengl"], out.fps_opengl);
-    out.spin_guard_ms =
-        static_cast<unsigned>(ParseNumber(kv["pacing.spin_guard_ms"], static_cast<double>(out.spin_guard_ms)));
+    const double spin =
+        ParseNumber(kv["pacing.spin_guard_ms"], static_cast<double>(out.spin_guard_ms));
+    out.spin_guard_ms = spin < 0.0 ? 0u : static_cast<unsigned>(spin);
     if (out.spin_guard_ms > 15) out.spin_guard_ms = 15;
 
     out.power_plan = Trimmed(kv["power.plan"]);
