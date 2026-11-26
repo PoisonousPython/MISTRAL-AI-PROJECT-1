@@ -21,12 +21,16 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Configure (MSVC x64)
-        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+      - name: Setup MSVC (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
       - name: Build
-        run: cmake --build build --config Release
+        run: cmake --build build
       - name: Verify artifacts
         shell: pwsh
         run: |
-          if (-not (Test-Path build\Release\governor.dll)) { throw "governor.dll missing" }
-          if (-not (Test-Path build\Release\governor_injector.exe)) { throw "governor_injector.exe missing" }
+          if (-not (Test-Path build\governor.dll)) { throw "governor.dll missing" }
+          if (-not (Test-Path build\governor_injector.exe)) { throw "governor_injector.exe missing" }
