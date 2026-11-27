@@ -187,6 +187,43 @@ int main() {
     }
 
     {
+        const char* inifile = "tests_tmp.ini";
+        Config c4;
+        FILE* f = std::fopen(inifile, "wb");
+        std::fputs(
+            "[governor]\nenabled = true\n"
+            "[cpu]\n; Max total CPU usage. 7500 means 75% of the whole machine. 0 = no cap.\n"
+            "cpu_rate_permille = 7500\n"
+            "; Logical cores the game may NOT use (0 = game can use everything).\n"
+            "reserve_cores = 0\npriority_class = below_normal\napply_to_new_threads = true\n"
+            "thread_sweep_ms = 250\n"
+            "[memory]\ncommit_limit_mb = 0\n"
+            "[framerate]\nfps_limit = 60\nfps_d3d9 = 0\nfps_dxgi = 0\nfps_vulkan = 0\n"
+            "fps_opengl = 0\n"
+            "[present]\ndxgi_force_sync_interval = -1\n"
+            "[pacing]\nspin_guard_ms = 2\n"
+            "[power]\nplan = \n"
+            "[vulkan]\nlayer = false\npace_point = queue_present\n",
+            f);
+        std::fclose(f);
+        const bool loaded = LoadConfigFromIni(inifile, c4);
+        std::remove(inifile);
+        CHECK(loaded, "wizard contract: wizard-shaped ini loads");
+        CHECK(c4.enabled, "wizard contract: enabled");
+        CHECK(c4.cpu_rate_permille == 7500, "wizard contract: cpu 75% -> 7500 job units");
+        CHECK(c4.reserve_core_count == 0, "wizard contract: reserve cores");
+        CHECK(c4.priority_class == "below_normal", "wizard contract: priority class");
+        CHECK(c4.reapply_thread_sched, "wizard contract: apply_to_new_threads");
+        CHECK(c4.thread_sweep_ms == 250, "wizard contract: thread sweep");
+        CHECK(c4.fps_global == 60.0, "wizard contract: fps limit");
+        CHECK(c4.dxgi_force_sync_interval == -1, "wizard contract: sync interval");
+        CHECK(c4.spin_guard_ms == 2, "wizard contract: spin guard");
+        CHECK(c4.power_plan.empty(), "wizard contract: empty power plan ok");
+        CHECK(!c4.vulkan_layer, "wizard contract: layer off");
+        CHECK(c4.vulkan_pace_point == "queue_present", "wizard contract: pace point");
+    }
+
+    {
         Pacer p;
         p.SetRate(0.0);
         const auto t0 = std::chrono::steady_clock::now();

@@ -77,7 +77,12 @@ bool IsOwnThread(DWORD tid) {
     return false;
 }
 
-void RegisterCurrentThread() { g_own_thread_ids.push_back(GetCurrentThreadId()); }
+void RegisterCurrentThread() {
+    const DWORD tid = GetCurrentThreadId();
+    for (DWORD id : g_own_thread_ids)
+        if (id == tid) return;
+    g_own_thread_ids.push_back(tid);
+}
 
 void ApplyAffinityToThread(HANDLE thread) {
     if (!g_thread_mask) return;
@@ -158,6 +163,20 @@ void ApplyPowerPlan() {
 
 void ApplyJobLimits() {
     const Config& c = Cfg();
+    if (g_job && !c.cpu_rate_permille) {
+        JOBOBJECT_CPU_RATE_CONTROL_INFORMATION off{};
+        off.ControlFlags = 0;
+        if (SetInformationJobObject(g_job, JobObjectCpuRateControlInformation, &off, sizeof(off))) {
+            Logf("sched: cpu rate cap removed");
+        }
+    }
+    if (g_job && !c.commit_limit_mb) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION clear{};
+        if (SetInformationJobObject(g_job, JobObjectExtendedLimitInformation, &clear,
+                                    sizeof(clear))) {
+            Logf("sched: commit limit removed");
+        }
+    }
     if (!c.cpu_rate_permille && !c.commit_limit_mb) return;
 
     if (!g_job) {
