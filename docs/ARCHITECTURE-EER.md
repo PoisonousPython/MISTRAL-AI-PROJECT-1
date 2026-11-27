@@ -147,7 +147,7 @@ code or the model and retry until both hold, then edit the main project files.
 | `tools/` | INJECTOR | `injector.cpp` | `governor_injector` |
 | `dist/` | CONTROL_SURFACE (WIZARD) | `governor-wizard.ps1`, `Launch Governor.bat` | packaged by CI |
 | `tests/` | PE_PARSER, CONFIG, PACER contracts | `test_portable.cpp` | `tgov_tests` |
-| `docs/` | this model | `ARCHITECTURE-EER.md` | — |
+| `docs/` | this model, player-facing runtime walkthrough | `ARCHITECTURE-EER.md`, `HOW-IT-WORKS.md` | — |
 
 Dependency direction (allowed edges only):
 

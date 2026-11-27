@@ -40,6 +40,10 @@ Notes for players:
 
 ## What it does
 
+Want to understand the machinery without running anything? Read
+[docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) — every step of the runtime loop with
+the raw code that executes at that step.
+
 | Control | Mechanism | Config |
 | --- | --- | --- |
 | FPS cap (frame pacing) | Pre-present sleep in hooked present calls, per API | `framerate.*`, `pacing.spin_guard_ms` |
