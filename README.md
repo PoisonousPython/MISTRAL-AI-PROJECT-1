@@ -51,9 +51,9 @@ the raw code that executes at that step.
 | --- | --- | --- |
 | FPS cap (frame pacing) | Pre-present sleep in hooked present calls, per API | `framerate.*`, `pacing.spin_guard_ms` |
 | Whole-process CPU hard cap | Job Object `JOB_OBJECT_CPU_RATE_CONTROL` (Windows 8+) | `cpu.cpu_rate_permille` |
-| Core placement | `SetThreadAffinityMask` on every thread, re-swept for new threads; or "reserve N low cores" PS3-style | `cpu.affinity_mask`, `cpu.reserve_cores` |
+| Core placement | `SetThreadAffinityMask` on every thread, re-swept for new threads; or "reserve N low cores" PS3-style - topology-aware: efficiency cores are reserved first on hybrid CPUs (E-cores on Intel), falling back to lowest indices elsewhere | `cpu.affinity_mask`, `cpu.reserve_cores` |
 | Thread priority | `SetPriorityClass` for the whole process | `cpu.priority_class` |
-| Memory commit cap | Job Object `JOB_OBJECT_LIMIT_PROCESS_MEMORY` | `memory.commit_limit_mb` |
+| Memory commit cap (experimental) | Job Object `JOB_OBJECT_LIMIT_PROCESS_MEMORY` - a hard ceiling that can cause allocation failures inside the game; off by default, not a memory optimizer | `memory.commit_limit_mb` |
 | Power plan | `PowerSetActiveScheme` at start (optional) | `power.plan` |
 | Forced vsync / swap interval | Overrides `SyncInterval` on D3D10/11/12 presents | `present.dxgi_force_sync_interval` |
 
@@ -188,6 +188,13 @@ Read this before judging the design:
   rest of the controls still apply.
 - **Dynamically-loaded Vulkan functions** are invisible to IAT hooks; that is what
   layer mode addresses above.
+- **A CPU-rate cap is a hard ceiling, not smart scheduling.** When the game hits the
+  cap, its threads pause until the next scheduling interval - frame times can get
+  uneven. If you see stutter with a cap set, lower the cap's severity or reserve
+  cores instead and measure. Restricting CPU reduces heat but can cost performance;
+  they are competing objectives.
+- **Nothing system-wide lingers.** On shutdown or disable the governor restores the
+  original priority class, power plan, and thread affinity, and clears the job caps.
 - **Injection can trigger anti-cheat.** EAC/BattlEye-style anti-cheat treats DLL
   injection as hostile and can ban the account. Use this on single-player games or
   your own builds only. This is inherent to injection, not specific to this tool.

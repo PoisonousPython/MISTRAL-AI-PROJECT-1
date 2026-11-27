@@ -1,5 +1,6 @@
 #include "tgov_win.h"
 
+#include <psapi.h>
 #include <string>
 #include <timeapi.h>
 
@@ -42,23 +43,88 @@ void ApplyAllPacerRates() {
     PacerOpenGl().SetSpinGuard(Cfg().spin_guard_ms);
 }
 
-}  // namespace
+HANDLE g_worker = nullptr;
+HANDLE g_stop_event = nullptr;
+DWORD g_module_count = 0;
 
-Pacer& PacerD3D9() {
-    static Pacer p;
-    return p;
+DWORD CurrentModuleCount() {
+    HMODULE mods[1024];
+    DWORD needed = 0;
+    if (!EnumProcessModules(GetCurrentProcess(), mods, sizeof(mods), &needed)) return g_module_count;
+    const DWORD count = needed / sizeof(HMODULE);
+    return count < 1024 ? count : 1024;
 }
-Pacer& PacerDxgi() {
-    static Pacer p;
-    return p;
+
+DWORD WINAPI WorkerThread(LPVOID) {
+    const Config& c = Cfg();
+    if (c.enabled) {
+        Logf("governor: active (fps d3d9=%.1f dxgi=%.1f vulkan=%.1f opengl=%.1f, cpu cap=%u permille)",
+             c.fps_d3d9 > 0 ? c.fps_d3d9 : c.fps_global,
+             c.fps_dxgi > 0 ? c.fps_dxgi : c.fps_global,
+             c.fps_vulkan > 0 ? c.fps_vulkan : c.fps_global,
+             c.fps_opengl > 0 ? c.fps_opengl : c.fps_global, c.cpu_rate_permille);
+    } else {
+        Logf("governor: disabled in config - pacing and scheduling stay off");
+    }
+
+    for (;;) {
+        const DWORD wait = Cfg().reapply_thread_sched ? Cfg().thread_sweep_ms : 1000;
+        if (WaitForSingleObjectEx(g_stop_event, wait, FALSE) != WAIT_TIMEOUT) break;
+        SchedulerSweep();
+        if (Cfg().enabled) {
+            const DWORD count = CurrentModuleCount();
+            if (count != g_module_count) {
+                g_module_count = count;
+                Logf("hooks: module set changed, rescanning imports");
+                InstallD3D9Hooks();
+                InstallDxgiHooks();
+                InstallOpenGLHooks();
+                InstallVulkanHooks();
+                InstallVulkanLayerExports();
+            }
+        }
+    }
+    return 0;
 }
-Pacer& PacerVulkan() {
-    static Pacer p;
-    return p;
+
+void ShutdownAll() {
+    if (g_stop_event) {
+        SetEvent(g_stop_event);
+        if (g_worker) {
+            WaitForSingleObject(g_worker, 2000);
+            CloseHandle(g_worker);
+            g_worker = nullptr;
+        }
+        CloseHandle(g_stop_event);
+        g_stop_event = nullptr;
+    }
+    SchedulerShutdown();
+    LogClose();
 }
-Pacer& PacerOpenGl() {
-    static Pacer p;
-    return p;
+
+void ReloadNow();
+
+void GovernorStart() {
+    if (!g_stop_event) {
+        LogOpen((SelfDirectory() + "\\governor.log").c_str());
+        char path[MAX_PATH] = {};
+        GetModuleFileNameA(nullptr, path, MAX_PATH);
+        Logf("governor: loaded into process, host=%s", path);
+        g_stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (!g_stop_event) {
+            Logf("governor: event creation failed (err=%lu)", GetLastError());
+            return;
+        }
+        ::timeBeginPeriod(1);
+        g_module_count = CurrentModuleCount();
+    }
+    ReloadNow();
+    if (!g_worker) {
+        g_worker = CreateThread(nullptr, 0, WorkerThread, nullptr, 0, nullptr);
+        if (!g_worker) {
+            Logf("governor: worker thread creation failed (err=%lu)", GetLastError());
+        }
+    }
 }
 
 void ReloadNow() {
@@ -84,76 +150,23 @@ void ReloadNow() {
     }
 }
 
-namespace {
-
-HANDLE g_worker = nullptr;
-HANDLE g_stop_event = nullptr;
-
-DWORD WINAPI WorkerThread(LPVOID) {
-    ReloadNow();
-    if (!Cfg().enabled) {
-        Logf("governor: disabled in config - pacing and scheduling stay off");
-        return 0;
-    }
-
-    const Config& c = Cfg();
-    Logf("governor: active (fps d3d9=%.1f dxgi=%.1f vulkan=%.1f opengl=%.1f, cpu cap=%u permille)",
-         c.fps_d3d9 > 0 ? c.fps_d3d9 : c.fps_global,
-         c.fps_dxgi > 0 ? c.fps_dxgi : c.fps_global,
-         c.fps_vulkan > 0 ? c.fps_vulkan : c.fps_global,
-         c.fps_opengl > 0 ? c.fps_opengl : c.fps_global, c.cpu_rate_permille);
-
-    for (;;) {
-        const DWORD wait = c.reapply_thread_sched ? c.thread_sweep_ms : 1000;
-        if (WaitForSingleObjectEx(g_stop_event, wait, FALSE) != WAIT_TIMEOUT) break;
-        SchedulerSweep();
-    }
-    return 0;
-}
-
-void ShutdownAll() {
-    if (g_stop_event) {
-        SetEvent(g_stop_event);
-        if (g_worker) {
-            WaitForSingleObject(g_worker, 2000);
-            CloseHandle(g_worker);
-            g_worker = nullptr;
-        }
-        CloseHandle(g_stop_event);
-        g_stop_event = nullptr;
-    }
-    SchedulerShutdown();
-    LogClose();
-}
-
 }  // namespace
 
 }  // namespace tgov
 
 extern "C" {
 
-TGOV_DLLEXPORT void GovernorReload() { tgov::ReloadNow(); }
+TGOV_DLLEXPORT void GovernorReload() { tgov::GovernorStart(); }
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(module);
         tgov::InitSelfModule();
-        const std::string dir = tgov::SelfDirectory();
-        tgov::LogOpen((dir + "\\governor.log").c_str());
-        tgov::Logf("governor: loaded into process...");
-        char path[MAX_PATH] = {};
-        GetModuleFileNameA(nullptr, path, MAX_PATH);
-        tgov::Logf("governor: host=%s", path);
-        ::timeBeginPeriod(1);
-
-        tgov::g_stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        tgov::g_worker = CreateThread(nullptr, 0, tgov::WorkerThread, nullptr, 0, nullptr);
-        if (!tgov::g_worker) {
-            tgov::Logf("governor: worker thread creation failed (err=%lu)", GetLastError());
-        }
     } else if (reason == DLL_PROCESS_DETACH) {
-        ::timeEndPeriod(1);
-        tgov::ShutdownAll();
+        if (tgov::g_stop_event) {
+            ::timeEndPeriod(1);
+            tgov::ShutdownAll();
+        }
     }
     return TRUE;
 }

@@ -2,7 +2,9 @@
 #define NOMINMAX
 #include <windows.h>
 #include <tlhelp32.h>
+#include <psapi.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <cwchar>
 #include <string>
@@ -52,6 +54,56 @@ static bool RejectIf32Bit(HANDLE process) {
 #else
     return false;
 #endif
+}
+
+static void* RemoteModuleBase(HANDLE process, const std::wstring& dll_path) {
+    HMODULE mods[1024];
+    DWORD needed = 0;
+    if (!EnumProcessModules(process, mods, sizeof(mods), &needed)) return nullptr;
+    DWORD count = needed / sizeof(HMODULE);
+    if (count > 1024) count = 1024;
+    std::wstring want = dll_path;
+    const size_t slash = want.find_last_of(L"\\/");
+    if (slash != std::wstring::npos) want = want.substr(slash + 1);
+    for (DWORD i = 0; i < count; ++i) {
+        wchar_t name[MAX_PATH] = {};
+        if (!GetModuleBaseNameW(process, mods[i], name, MAX_PATH)) continue;
+        if (_wcsicmp(name, want.c_str()) == 0) return mods[i];
+    }
+    return nullptr;
+}
+
+static void StartGovernorRuntime(HANDLE process, const std::wstring& dll_path) {
+    void* base = RemoteModuleBase(process, dll_path);
+    if (!base) {
+        std::fwprintf(stderr, L"governor.dll module not found in target after load\n");
+        return;
+    }
+    HMODULE local = LoadLibraryExW(dll_path.c_str(), nullptr, DONT_RESOLVE_DLL_REFERENCES);
+    if (!local) {
+        std::fwprintf(stderr, L"could not map governor.dll locally (err=%lu)\n", GetLastError());
+        return;
+    }
+    const FARPROC proc = GetProcAddress(local, "GovernorReload");
+    const uintptr_t rva = proc ? reinterpret_cast<const uint8_t*>(proc) -
+                                     reinterpret_cast<const uint8_t*>(local)
+                               : 0;
+    FreeLibrary(local);
+    if (!proc) {
+        std::fwprintf(stderr, L"governor.dll has no GovernorReload export\n");
+        return;
+    }
+    void* remote = reinterpret_cast<uint8_t*>(base) + rva;
+    HANDLE t = CreateRemoteThread(process, nullptr, 0,
+                                  reinterpret_cast<LPTHREAD_START_ROUTINE>(remote), nullptr, 0,
+                                  nullptr);
+    if (!t) {
+        std::fwprintf(stderr, L"could not start governor runtime (err=%lu)\n", GetLastError());
+        return;
+    }
+    WaitForSingleObject(t, 10000);
+    CloseHandle(t);
+    std::wprintf(L"governor runtime started\n");
 }
 
 static bool InjectInto(HANDLE process, const std::wstring& dll) {
@@ -157,7 +209,9 @@ int wmain(int argc, wchar_t** argv) {
             CloseHandle(pi.hThread);
             return 1;
         }
-        std::wprintf(L"ok, resuming\n");
+        std::wprintf(L"ok\n");
+        StartGovernorRuntime(pi.hProcess, dll);
+        std::wprintf(L"resuming\n");
         ResumeThread(pi.hThread);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
@@ -184,6 +238,7 @@ int wmain(int argc, wchar_t** argv) {
     std::wprintf(L"injecting %s into pid %lu ... ", dll.c_str(), pid);
     const bool ok = InjectInto(process, dll);
     std::wprintf(L"%s\n", ok ? L"ok" : L"FAILED");
+    if (ok) StartGovernorRuntime(process, dll);
     CloseHandle(process);
     return ok ? 0 : 1;
 }
