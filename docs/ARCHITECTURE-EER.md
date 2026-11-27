@@ -66,6 +66,9 @@ code or the model and retry until both hold, then edit the main project files.
 - `HookIatAllModules(module, function, detour) → sites-hooked`
 - `VtableHook(obj, slot, detour) → original` (fire-and-forget; the DLL unloads with the process, so there is no restore path)
 - `VirtualProtect` scoped to the exact 8-byte slot being written.
+- The RUNTIME worker re-runs the install pass whenever the process module set
+  changes (new modules loaded after injection are hooked too; already-hooked
+  modules are skipped by the double-hook guard).
 
 ### PE_PARSER
 - Portable reader over raw mapped images: MZ/PE validation, opt-header magic
@@ -74,26 +77,38 @@ code or the model and retry until both hold, then edit the main project files.
 
 ### SCHEDULER
 - `job: JobObject` (CPU-rate hard cap, commit limit), `thread_mask: u64`,
-  `own_thread_ids: set`, `sweep_period: ms`
-- Powers the game process via: priority class, affinity (explicit or reserved-low-cores),
-  power plan, and re-sweeps newly spawned game threads.
+  `own_thread_ids: set`, `sweep_period: ms`, `saved: {priority, power scheme,
+  process affinity}`
+- Powers the game process via: priority class, affinity (explicit, or reserved
+  low-performance cores chosen topology-aware: efficiency cores first via
+  `GetLogicalProcessorInformationEx`, falling back to lowest indices on older
+  Windows), power plan, and re-sweeps newly spawned game threads.
 - Reload semantics: setting a value to 0 removes that limit. Shutdown/disable clears
-  both caps while the job handle still exists, then releases it.
+  both caps while the job handle still exists, then releases it, and restores the
+  saved priority class, power plan, and thread affinity (nothing system-wide lingers).
 - Existence order inside one pass: mask built from CONFIG → priority → power plan →
   job caps; nothing applies before its input values exist.
 
 ### RUNTIME (governor lifecycle)
 - `state ∈ {idle, active}`; worker thread; reload entry point (`GovernorReload`);
   log file. `enabled = false` ⇒ state stays `idle`, process untouched (G5).
-- Reload is the single gate: it re-reads CONFIG, re-applies PACER rates, installs
-  the CAPTURE hooks when `enabled` is true (idempotent, so an enable at runtime
-  still installs), and starts or stops the SCHEDULER to match.
+- DllMain is minimal by design (loader-lock rule): it only registers the module.
+  The INJECTOR starts the runtime with a remote thread on the exported
+  `GovernorReload` after LoadLibrary returns → no threads are created from DllMain.
+- GovernorReload is the single gate: it starts log/timer/worker on first call, then
+  re-reads CONFIG, re-applies PACER rates, installs the CAPTURE hooks when `enabled`
+  is true (idempotent, so an enable at runtime still installs), and starts or stops
+  the SCHEDULER to match.
 
 ### GOVERNOR_DLL
 - The loadable agent. Aggregates RUNTIME + CONFIG + 4×PACER + CAPTURE/SCHEDULER wiring.
 
 ### INJECTOR (tool)
-- `--launch` (CREATE_SUSPENDED → inject → resume) | `--pid <id|name.exe>`
+- `--launch` (CREATE_SUSPENDED → inject → start runtime → resume) |
+  `--pid <id|name.exe>` (inject → start runtime)
+- Runtime start: resolves `GovernorReload`'s RVA via a `DONT_RESOLVE_DLL_REFERENCES`
+  local mapping, finds the remote module base via `EnumProcessModules`, and calls the
+  export with `CreateRemoteThread` → the loader lock is never held across module code.
 - Guards: target must exist, must be 64-bit (WOW64 check — explicit player-readable
   error otherwise). Never leaves a half-launched game behind.
 

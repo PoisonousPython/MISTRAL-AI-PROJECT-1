@@ -17,9 +17,11 @@ typedef struct _JOBOBJECT_CPU_RATE_CONTROL_INFORMATION {
 #endif
 
 #include <powrprof.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace tgov {
@@ -54,6 +56,48 @@ bool ParseGuid(const char* s, Guid& g) {
 HANDLE g_job = nullptr;
 unsigned long long g_thread_mask = 0;
 std::vector<DWORD> g_own_thread_ids;
+DWORD g_orig_priority = 0;
+unsigned long long g_process_mask = 0;
+GUID* g_orig_scheme = nullptr;
+bool g_scheduler_active = false;
+
+unsigned long long ReserveLowPerformanceCores(unsigned long long all, unsigned n) {
+    unsigned long long reserved = (1ULL << n) - 1ULL;
+    DWORD len = 0;
+    if (GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &len) ||
+        GetLastError() != ERROR_INSUFFICIENT_BUFFER || !len)
+        return reserved;
+    std::vector<unsigned char> buf(len);
+    if (!GetLogicalProcessorInformationEx(
+            RelationProcessorCore,
+            reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(buf.data()), &len))
+        return reserved;
+    std::vector<std::pair<unsigned, unsigned>> cores;
+    unsigned char* p = buf.data();
+    const unsigned char* end = buf.data() + len;
+    bool single_group = true;
+    while (p < end) {
+        auto* info = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(p);
+        if (!info->Size || p + info->Size > end) break;
+        if (info->Relationship == RelationProcessorCore) {
+            for (DWORD gi = 0; gi < info->Processor.GroupCount; ++gi) {
+                const GROUP_AFFINITY& ga = info->Processor.GroupMask[gi];
+                if (ga.Group != 0) single_group = false;
+                unsigned long long m = ga.Mask;
+                for (unsigned bit = 0; m; ++bit, m >>= 1ULL)
+                    if (m & 1ULL)
+                        cores.push_back({info->Processor.EfficiencyClass, bit});
+            }
+        }
+        p += info->Size;
+    }
+    if (single_group && cores.size() >= n) {
+        std::sort(cores.begin(), cores.end());
+        reserved = 0;
+        for (unsigned i = 0; i < n; ++i) reserved |= 1ULL << cores[i].second;
+    }
+    return reserved;
+}
 
 unsigned long long BuildThreadMask() {
     const Config& c = Cfg();
@@ -69,7 +113,7 @@ unsigned long long BuildThreadMask() {
         }
         const unsigned n = c.reserve_core_count;
         if (n >= 64) return 0;
-        const unsigned long long reserved = (1ULL << n) - 1ULL;
+        const unsigned long long reserved = ReserveLowPerformanceCores(all, n);
         const unsigned long long mask = all & ~reserved;
         return mask ? mask : all;
     }
@@ -89,13 +133,8 @@ void RegisterCurrentThread() {
     g_own_thread_ids.push_back(tid);
 }
 
-void ApplyAffinityToThread(HANDLE thread) {
-    if (!g_thread_mask) return;
-    SetThreadAffinityMask(thread, static_cast<DWORD_PTR>(g_thread_mask));
-}
-
-void SweepThreads() {
-    if (!g_thread_mask) return;
+void SweepThreads(unsigned long long mask) {
+    if (!mask) return;
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
     if (snap == INVALID_HANDLE_VALUE) return;
 
@@ -109,7 +148,7 @@ void SweepThreads() {
             HANDLE t = OpenThread(THREAD_SET_LIMITED_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION,
                                   FALSE, te.th32ThreadID);
             if (!t) continue;
-            ApplyAffinityToThread(t);
+            SetThreadAffinityMask(t, static_cast<DWORD_PTR>(mask));
             CloseHandle(t);
         } while (Thread32Next(snap, &te));
     }
@@ -253,12 +292,21 @@ void ApplyJobLimits() {
 void SchedulerStart() {
     RegisterCurrentThread();
     g_thread_mask = BuildThreadMask();
+    if (!g_orig_priority) g_orig_priority = GetPriorityClass(GetCurrentProcess());
+    if (!g_process_mask) {
+        DWORD_PTR pm = 0;
+        DWORD_PTR sm = 0;
+        if (GetProcessAffinityMask(GetCurrentProcess(), &pm, &sm) && pm)
+            g_process_mask = static_cast<unsigned long long>(pm);
+    }
+    if (!g_orig_scheme) PowerGetActiveScheme(nullptr, &g_orig_scheme);
+    g_scheduler_active = true;
     ApplyPriorityClass();
     ApplyPowerPlan();
     ApplyJobLimits();
 
     if (g_thread_mask) {
-        SweepThreads();
+        SweepThreads(g_thread_mask);
         Logf("sched: thread affinity mask 0x%llx applied (initial sweep)", g_thread_mask);
     } else {
         Logf("sched: no cpu scheduling limits requested");
@@ -268,10 +316,28 @@ void SchedulerStart() {
 void SchedulerSweep() {
     if (!Cfg().reapply_thread_sched) return;
     if (!g_thread_mask) return;
-    SweepThreads();
+    SweepThreads(g_thread_mask);
 }
 
 void SchedulerShutdown() {
+    if (g_scheduler_active) {
+        g_scheduler_active = false;
+        if (g_orig_priority) {
+            SetPriorityClass(GetCurrentProcess(), g_orig_priority);
+            g_orig_priority = 0;
+        }
+        if (g_orig_scheme) {
+            if (PowerSetActiveScheme(nullptr, g_orig_scheme))
+                Logf("sched: original power plan restored");
+            LocalFree(g_orig_scheme);
+            g_orig_scheme = nullptr;
+        }
+        if (g_process_mask && g_thread_mask) {
+            SweepThreads(g_process_mask);
+            Logf("sched: thread affinity restored to process default");
+        }
+        g_thread_mask = 0;
+    }
     ClearJobCaps();
     if (g_job) {
         CloseHandle(g_job);
