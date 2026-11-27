@@ -37,7 +37,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           Copy-Item build\governor.dll $stage\
           Copy-Item build\governor_injector.exe $stage\
-          Copy-Item dist\* $stage\
+          Copy-Item build\governor_setup.exe $stage\
           Copy-Item config\thermal_governor.ini $stage\
           Compress-Archive -Path package\thermal-governor -DestinationPath thermal-governor-win64.zip -Force
       - uses: actions/upload-artifact@v4
@@ -49,6 +49,7 @@ jobs:
         run: |
           if (-not (Test-Path build\governor.dll)) { throw "governor.dll missing" }
           if (-not (Test-Path build\governor_injector.exe)) { throw "governor_injector.exe missing" }
+          if (-not (Test-Path build\governor_setup.exe)) { throw "governor_setup.exe missing" }
           if (-not (Test-Path thermal-governor-win64.zip)) { throw "zip missing" }
 
   release:
@@ -65,4 +66,4 @@ jobs:
       - name: Create GitHub release with the zip
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" thermal-governor-win64.zip --title "Thermal Governor ${{ github.ref_name }}" --notes "Unzip, double-click 'Launch Governor.bat'. Single-player games only - DLL injection can trigger anti-cheat systems."
+        run: gh release create "${{ github.ref_name }}" thermal-governor-win64.zip --title "Thermal Governor ${{ github.ref_name }}" --notes "Unzip all files to a folder, double-click governor_setup.exe, pick your game. Single-player games only - DLL injection can trigger anti-cheat systems."

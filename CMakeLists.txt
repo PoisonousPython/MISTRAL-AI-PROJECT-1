@@ -45,6 +45,10 @@ if(WIN32)
     add_executable(governor_injector tools/injector.cpp)
     target_compile_definitions(governor_injector PRIVATE UNICODE _UNICODE)
     target_link_libraries(governor_injector PRIVATE user32 kernel32)
+
+    add_executable(governor_setup tools/governor_setup.cpp)
+    target_compile_definitions(governor_setup PRIVATE UNICODE _UNICODE)
+    target_link_libraries(governor_setup PRIVATE ole32)
 else()
     add_executable(tgov_tests
         tests/test_portable.cpp

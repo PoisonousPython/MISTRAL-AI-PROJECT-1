@@ -19,8 +19,9 @@ instructions, and never touches a game's internal allocator or scheduler — see
 ## For players (no coding needed)
 
 1. **Download** the latest thermal-governor-win64.zip from the Releases page and
-   unzip it anywhere (e.g. your Desktop).
-2. **Double-click `Launch Governor.bat`** (allow it to run if Windows asks).
+   extract all files to a folder (e.g. right-click → **Extract All**). Files must be
+   on disk — running from inside the zip view does not work.
+2. **Double-click `governor_setup.exe`** in that folder.
 3. **Pick your game** in the file browser, answer four simple questions
    (frame limit, max CPU %, reserved cores, pacing precision), and the game starts
    with the governor active.
@@ -33,8 +34,10 @@ Notes for players:
   online anti-cheat (EAC/BattlEye-style) can treat the injected DLL as a cheat and
   ban the account.
 - Everything the helper did is written to `governor.log` in the same folder.
-- If Windows says PowerShell is blocked, right-click `governor-wizard.ps1` →
-  Properties → check **Unblock** → OK, then run the .bat again.
+- The first time you run `governor_setup.exe`, Windows may show
+  "Windows protected your PC" because the build is not code-signed. Click
+  **More info** → **Run anyway**. The alternative is paying for a code-signing
+  certificate; the executable's source is in `tools/governor_setup.cpp`.
 - The build methods below are only needed if you want to compile it yourself;
   the release zip contains ready-built files.
 
@@ -232,8 +235,8 @@ src/scheduler/        SCHEDULER
 src/runtime/          GOVERNOR_DLL lifecycle
   governor.cpp          lifecycle, config reload, worker thread
 tools/injector.cpp    INJECTOR: suspended-launch / attach
+tools/governor_setup.cpp  CONTROL_SURFACE (player wizard: file dialog + INI + launch)
 docs/                 ARCHITECTURE-EER.md — the entity model every change must fit
 config/               sample INI, fully documented
 tests/                portable test suite
-dist/                 player wizard + launcher
 ```
