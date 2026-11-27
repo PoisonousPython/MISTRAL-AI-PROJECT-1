@@ -10,12 +10,18 @@
 #include <string>
 
 static std::wstring SelfDirectory() {
-    wchar_t path[MAX_PATH] = {};
-    GetModuleFileNameW(nullptr, path, MAX_PATH);
+    wchar_t path[32768] = {};
+    const DWORD len = GetModuleFileNameW(nullptr, path, 32768);
+    if (len == 0 || len >= 32768) return L"";
     std::wstring dir(path);
     const size_t slash = dir.find_last_of(L"\\/");
-    if (slash != std::wstring::npos) dir.resize(slash);
+    if (slash == std::wstring::npos) return L"";
+    dir.resize(slash);
     return dir;
+}
+
+static std::wstring FileNameOnly(const std::wstring& path) {
+    return path.substr(path.find_last_of(L"\\/") + 1);
 }
 
 static bool FileExists(const std::wstring& path) {
@@ -41,17 +47,19 @@ static std::wstring ReadLine() {
 
 static void PromptClose() {
     std::wprintf(L"\nPress Enter to close...");
+    fflush(stdout);
     ReadLine();
 }
 
 static double ReadNumber(const wchar_t* prompt, double fallback) {
     while (true) {
         std::wprintf(L"%s [%g]: ", prompt, fallback);
+        fflush(stdout);
         const std::wstring raw = Trimmed(ReadLine());
         if (raw.empty()) return fallback;
         wchar_t* end = nullptr;
         const double value = std::wcstod(raw.c_str(), &end);
-        if (end && *end == L'\0' && raw.c_str() != end && value >= 0.0) return value;
+        if (end && *end == L'\0' && raw.c_str() != end && value >= 0.0 && std::isfinite(value)) return value;
         std::wprintf(L"Please enter a plain number (or press Enter)\n");
     }
 }
@@ -112,9 +120,15 @@ static std::wstring PickGameDialog(bool& cancelled) {
 static std::wstring PickGameTyped() {
     std::wprintf(L"Type or drag the game's .exe file here:\n> ");
     std::wstring path = Trimmed(ReadLine());
-    if (!path.empty() && !FileExists(path)) {
-        std::wprintf(L"[X] That file does not exist: %s\n", path.c_str());
-        path.clear();
+    if (!path.empty()) {
+        const DWORD attr = GetFileAttributesW(path.c_str());
+        if (attr == INVALID_FILE_ATTRIBUTES) {
+            std::wprintf(L"[X] That file does not exist: %s\n", path.c_str());
+            path.clear();
+        } else if (attr & FILE_ATTRIBUTE_DIRECTORY) {
+            std::wprintf(L"[X] That is a folder, not a game: %s\n", path.c_str());
+            path.clear();
+        }
     }
     return path;
 }
@@ -225,7 +239,8 @@ int wmain() {
     }
 
     std::wprintf(L"\nGame selected:\n  %s\n\n", game.c_str());
-    const double fps = ReadNumber(L"Frame limit (0 = no limit)", 60);
+    double fps = ReadNumber(L"Frame limit (0 = no limit)", 60);
+    if (fps > 1000) fps = 1000;
     const double cpu = ReadNumber(L"Max CPU usage in percent (0 = no cap)", 75);
     double cores = ReadNumber(L"Reserve idle cores, 0-4. More = cooler, slightly slower", 0);
     if (cores > 4) cores = 4;
@@ -238,29 +253,37 @@ int wmain() {
 
     if (!WriteAsciiFile(iniPath, BuildIni(fps, cpuPermille, static_cast<int>(cores), static_cast<int>(spin)))) {
         std::wprintf(L"[X] Could not write %s (error %lu).\n", iniPath.c_str(), GetLastError());
+        std::wprintf(L"    Is this folder read-only? Move the extracted files somewhere writable\n");
+        std::wprintf(L"    (your Desktop, for example) and run this again.\n");
         PromptClose();
         return 1;
     }
     std::wprintf(L"\n[OK] Settings saved to %s\n", iniPath.c_str());
 
     std::wprintf(L"\nIs the game already running? (y/N): ");
-    const bool attach = std::wcspbrk(Trimmed(ReadLine()).c_str(), L"yY") != nullptr;
+    fflush(stdout);
+    const std::wstring attachAnswer = Trimmed(ReadLine());
+    const bool attach = !attachAnswer.empty() && (attachAnswer[0] == L'y' || attachAnswer[0] == L'Y');
 
     std::wprintf(L"\nStarting the game with the governor...\n\n");
     int exitCode;
     if (attach) {
-        exitCode = RunInjector(injector, L"--pid \"" + game + L"\" \"" + dll + L"\"");
+        exitCode = RunInjector(injector, L"--pid \"" + FileNameOnly(game) + L"\" \"" + dll + L"\"");
     } else {
         exitCode = RunInjector(injector, L"--launch \"" + game + L"\" \"" + dll + L"\"");
     }
     if (exitCode != 0) {
         std::wprintf(L"\nThe injector reported a problem (exit code %d).\n", exitCode);
+        std::wprintf(L"    If the game needs admin rights, right-click this program and\n");
+        std::wprintf(L"    choose 'Run as administrator', then try again.\n");
     }
 
     std::wprintf(L"\n----------------------------------------------\n");
     std::wprintf(L"If anything looks wrong, check the log:\n");
     std::wprintf(L"  %s\\governor.log\n", dir.c_str());
     std::wprintf(L"Tip: settings can be changed at any time with this same helper.\n");
+    std::wprintf(L"Steam/Epic games: if a launcher started instead, wait for the real game\n");
+    std::wprintf(L"window, then run this helper again and answer 'y' to attach to it.\n");
     std::wprintf(L"----------------------------------------------\n");
     PromptClose();
     return exitCode;
