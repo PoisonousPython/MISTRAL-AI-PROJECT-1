@@ -64,6 +64,8 @@ unsigned long long ParseMask(const std::string& v, unsigned long long def);
 bool LoadConfigFromIni(const std::string& path, Config& out);
 std::string Trimmed(const std::string& s);
 
+Config& Cfg();
+
 namespace pe {
 
 std::vector<void**> FindIatSlots(const uint8_t* image_base, const char* module_name,

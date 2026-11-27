@@ -133,9 +133,9 @@ code or the model and retry until both hold, then edit the main project files.
 
 | Directory | Entity(ies) | Files | CMake target |
 | --- | --- | --- | --- |
-| `src/core/` | CONFIG, PACER, CONTROL_SURFACE contract | `tgov_types.h`, `config.cpp`, `pacer.cpp` | `tgov_core` |
+| `src/core/` | CONFIG, PACER, CONTROL_SURFACE contract, LOG (interface) | `tgov_types.h`, `tgov_log.h`, `config.cpp`, `pacer.cpp` | `tgov_core` |
 | `src/pe/` | PE_PARSER | `pe.cpp` | `tgov_pe` |
-| `src/hooks/` | HOOK_PLUMBING, CAPTURE×4, PRESENT_GATEWAY×4, LOG | `tgov_win.h`, `iat.cpp`, `hooks_dx9.cpp`, `hooks_dxgi.cpp`, `hooks_opengl.cpp`, `hooks_vulkan.cpp` | `tgov_hooks` (WIN32) |
+| `src/hooks/` | HOOK_PLUMBING, CAPTURE×4, PRESENT_GATEWAY×4, LOG (implementation) | `tgov_win.h`, `iat.cpp`, `hooks_dx9.cpp`, `hooks_dxgi.cpp`, `hooks_opengl.cpp`, `hooks_vulkan.cpp` | `tgov_hooks` (WIN32) |
 | `src/scheduler/` | SCHEDULER | `scheduler.cpp` | `tgov_sched` (WIN32) |
 | `src/runtime/` | RUNTIME, GOVERNOR_DLL | `governor.cpp` | `governor` (SHARED) |
 | `tools/` | INJECTOR | `injector.cpp` | `governor_injector` |
@@ -149,6 +149,12 @@ Dependency direction (allowed edges only):
 runtime → scheduler, hooks → {core, pe} → (nothing)
 tools/injector, dist/  (standalone; share only the CONFIG file contract)
 ```
+
+The LOG interface lives in `src/core/tgov_log.h` so every writer listed above
+(RUNTIME, CAPTURE, SCHEDULER) can reach it along an allowed edge; its
+implementation lives in HOOK_PLUMBING (`iat.cpp`) and is linked only into the
+final DLL. CONFIG's access point (`Config& Cfg()`) is declared in
+`tgov_types.h` and implemented by RUNTIME.
 
 ## Change protocol (from the project owner)
 

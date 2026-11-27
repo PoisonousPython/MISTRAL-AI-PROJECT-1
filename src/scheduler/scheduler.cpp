@@ -1,4 +1,9 @@
-#include "tgov_win.h"
+#include "tgov_log.h"
+#include "tgov_types.h"
+
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
 
 #include <tlhelp32.h>
 

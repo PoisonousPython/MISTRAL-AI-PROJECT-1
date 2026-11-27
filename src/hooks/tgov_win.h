@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tgov_types.h"
+#include "tgov_log.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -14,9 +15,6 @@
 
 namespace tgov {
 
-void Logf(const char* fmt, ...);
-void LogOpen(const char* log_path);
-void LogClose();
 std::string SelfDirectory();
 HMODULE SelfModule();
 void InitSelfModule();
@@ -28,15 +26,14 @@ bool VtableHook(void* com_instance, unsigned index, void* detour, void** origina
                 void*** vtable_out);
 bool VtableRestore(void** vtable, unsigned index, void* detour, void* original);
 
-Config& Cfg();
-double FpsLimit(const char* api_key);
+unsigned InstallD3D9Hooks();
 
 Pacer& PacerD3D9();
 Pacer& PacerDxgi();
 Pacer& PacerVulkan();
 Pacer& PacerOpenGl();
 
-unsigned InstallD3D9Hooks();
+double FpsLimit(const char* api_key);
 unsigned InstallDxgiHooks();
 unsigned InstallOpenGLHooks();
 unsigned InstallVulkanHooks();
