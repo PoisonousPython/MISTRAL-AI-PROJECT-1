@@ -17,6 +17,7 @@ typedef struct _JOBOBJECT_CPU_RATE_CONTROL_INFORMATION {
 #endif
 
 #include <powrprof.h>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -165,23 +166,44 @@ void ApplyPowerPlan() {
     }
 }
 
-void ApplyJobLimits() {
-    const Config& c = Cfg();
-    if (g_job && !c.cpu_rate_permille) {
+void ClearCpuRateCap() {
+    if (!g_job) return;
+    JOBOBJECT_CPU_RATE_CONTROL_INFORMATION rate{};
+    if (QueryInformationJobObject(g_job, JobObjectCpuRateControlInformation, &rate, sizeof(rate),
+                                  nullptr) &&
+        (rate.ControlFlags & JOB_OBJECT_CPU_RATE_CONTROL_ENABLE)) {
         JOBOBJECT_CPU_RATE_CONTROL_INFORMATION off{};
-        off.ControlFlags = 0;
         if (SetInformationJobObject(g_job, JobObjectCpuRateControlInformation, &off, sizeof(off))) {
             Logf("sched: cpu rate cap removed");
         }
     }
-    if (g_job && !c.commit_limit_mb) {
+}
+
+void ClearCommitLimit() {
+    if (!g_job) return;
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION ext{};
+    if (QueryInformationJobObject(g_job, JobObjectExtendedLimitInformation, &ext, sizeof(ext),
+                                  nullptr) &&
+        (ext.BasicLimitInformation.LimitFlags & JOB_OBJECT_LIMIT_PROCESS_MEMORY)) {
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION clear{};
         if (SetInformationJobObject(g_job, JobObjectExtendedLimitInformation, &clear,
                                     sizeof(clear))) {
             Logf("sched: commit limit removed");
         }
     }
-    if (!c.cpu_rate_permille && !c.commit_limit_mb) return;
+}
+
+void ClearJobCaps() {
+    ClearCpuRateCap();
+    ClearCommitLimit();
+}
+
+void ApplyJobLimits() {
+    const Config& c = Cfg();
+    if (!c.cpu_rate_permille && !c.commit_limit_mb) {
+        ClearJobCaps();
+        return;
+    }
 
     if (!g_job) {
         g_job = CreateJobObjectA(nullptr, "ThermalGovernor");
@@ -198,8 +220,8 @@ void ApplyJobLimits() {
         Logf("sched: process assigned to governor job object");
     }
 
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION ext{};
     if (c.commit_limit_mb) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION ext{};
         ext.ProcessMemoryLimit = c.commit_limit_mb * 1024ULL * 1024ULL;
         ext.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_PROCESS_MEMORY;
         if (!SetInformationJobObject(g_job, JobObjectExtendedLimitInformation, &ext, sizeof(ext))) {
@@ -207,6 +229,8 @@ void ApplyJobLimits() {
         } else {
             Logf("sched: commit limit set to %llu MB", c.commit_limit_mb);
         }
+    } else {
+        ClearCommitLimit();
     }
 
     if (c.cpu_rate_permille) {
@@ -219,6 +243,8 @@ void ApplyJobLimits() {
         } else {
             Logf("sched: cpu rate hard cap set to %.1f%%", c.cpu_rate_permille / 100.0);
         }
+    } else {
+        ClearCpuRateCap();
     }
 }
 
@@ -246,6 +272,7 @@ void SchedulerSweep() {
 }
 
 void SchedulerShutdown() {
+    ClearJobCaps();
     if (g_job) {
         CloseHandle(g_job);
         g_job = nullptr;

@@ -73,6 +73,11 @@ void ReloadNow() {
     }
     ApplyAllPacerRates();
     if (Cfg().enabled) {
+        InstallD3D9Hooks();
+        InstallDxgiHooks();
+        InstallOpenGLHooks();
+        InstallVulkanHooks();
+        InstallVulkanLayerExports();
         SchedulerStart();
     } else {
         SchedulerShutdown();
@@ -90,12 +95,6 @@ DWORD WINAPI WorkerThread(LPVOID) {
         Logf("governor: disabled in config - pacing and scheduling stay off");
         return 0;
     }
-
-    InstallD3D9Hooks();
-    InstallDxgiHooks();
-    InstallOpenGLHooks();
-    InstallVulkanHooks();
-    InstallVulkanLayerExports();
 
     const Config& c = Cfg();
     Logf("governor: active (fps d3d9=%.1f dxgi=%.1f vulkan=%.1f opengl=%.1f, cpu cap=%u permille)",
@@ -152,7 +151,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         if (!tgov::g_worker) {
             tgov::Logf("governor: worker thread creation failed (err=%lu)", GetLastError());
         }
-    } else if (reason == DLL_PROCESS_DETACH && tgov::g_worker != nullptr) {
+    } else if (reason == DLL_PROCESS_DETACH) {
         ::timeEndPeriod(1);
         tgov::ShutdownAll();
     }

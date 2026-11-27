@@ -77,11 +77,17 @@ code or the model and retry until both hold, then edit the main project files.
   `own_thread_ids: set`, `sweep_period: ms`
 - Powers the game process via: priority class, affinity (explicit or reserved-low-cores),
   power plan, and re-sweeps newly spawned game threads.
-- Reload semantics: setting a value to 0 removes that limit.
+- Reload semantics: setting a value to 0 removes that limit. Shutdown/disable clears
+  both caps while the job handle still exists, then releases it.
+- Existence order inside one pass: mask built from CONFIG → priority → power plan →
+  job caps; nothing applies before its input values exist.
 
 ### RUNTIME (governor lifecycle)
 - `state ∈ {idle, active}`; worker thread; reload entry point (`GovernorReload`);
   log file. `enabled = false` ⇒ state stays `idle`, process untouched (G5).
+- Reload is the single gate: it re-reads CONFIG, re-applies PACER rates, installs
+  the CAPTURE hooks when `enabled` is true (idempotent, so an enable at runtime
+  still installs), and starts or stops the SCHEDULER to match.
 
 ### GOVERNOR_DLL
 - The loadable agent. Aggregates RUNTIME + CONFIG + 4×PACER + CAPTURE/SCHEDULER wiring.

@@ -4,7 +4,7 @@
 #include <tlhelp32.h>
 
 #include <cstdio>
-#include <cstring>
+#include <cwchar>
 #include <string>
 
 struct Args {
@@ -129,12 +129,12 @@ int wmain(int argc, wchar_t** argv) {
         std::fwprintf(stderr, L"DLL not found: %s\n", dll.c_str());
         return 1;
     }
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
-    PROCESS_INFORMATION pi{};
-    wchar_t cmdline[4096] = {};
-
     if (a.mode == Args::kLaunch) {
+        STARTUPINFOW si{};
+        si.cb = sizeof(si);
+        PROCESS_INFORMATION pi{};
+        wchar_t cmdline[4096] = {};
+
         std::wstring quoted = L"\"" + a.exe + L"\"";
         if (!a.exe_args.empty()) quoted += L" " + a.exe_args;
         std::wcsncpy(cmdline, quoted.c_str(), 4095);
