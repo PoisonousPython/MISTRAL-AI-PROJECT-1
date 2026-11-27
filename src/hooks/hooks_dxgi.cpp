@@ -37,14 +37,12 @@ typedef HRESULT(STDMETHODCALLTYPE* PFN_FactoryCreateSwapChain)(IDXGIFactory*, IU
                                                                IDXGISwapChain**);
 typedef HRESULT(STDMETHODCALLTYPE* PFN_FactoryCreateSwapChainForHwnd)(
     IDXGIFactory2*, IUnknown*, HWND, const DXGI_SWAP_CHAIN_DESC1*,
-    const DXGI_SWAP_CHAIN_FULLSCREEN_DESC*, const DXGI_SWAP_CHAIN_RESTRICTIONS*,
-    IDXGISwapChain1**);
+    const DXGI_SWAP_CHAIN_FULLSCREEN_DESC*, IDXGIOutput*, IDXGISwapChain1**);
 typedef HRESULT(STDMETHODCALLTYPE* PFN_FactoryCreateSwapChainForCoreWindow)(
-    IDXGIFactory2*, IUnknown*, IUnknown*, const DXGI_SWAP_CHAIN_DESC1*,
-    const DXGI_SWAP_CHAIN_RESTRICTIONS*, IDXGISwapChain1**);
-typedef HRESULT(STDMETHODCALLTYPE* PFN_FactoryCreateSwapChainForComposition)(
-    IDXGIFactory2*, IUnknown*, const DXGI_SWAP_CHAIN_DESC1*, const DXGI_SWAP_CHAIN_RESTRICTIONS*,
+    IDXGIFactory2*, IUnknown*, IUnknown*, const DXGI_SWAP_CHAIN_DESC1*, IDXGIOutput*,
     IDXGISwapChain1**);
+typedef HRESULT(STDMETHODCALLTYPE* PFN_FactoryCreateSwapChainForComposition)(
+    IDXGIFactory2*, IUnknown*, const DXGI_SWAP_CHAIN_DESC1*, const void*, IDXGISwapChain1**);
 PFN_CreateDXGIFactory RealCreateDXGIFactory = nullptr;
 PFN_CreateDXGIFactory1 RealCreateDXGIFactory1 = nullptr;
 PFN_CreateDXGIFactory2 RealCreateDXGIFactory2 = nullptr;
@@ -106,7 +104,7 @@ HRESULT STDMETHODCALLTYPE HookFCreateSwapChainForHwnd(IDXGIFactory2* self, IUnkn
                                                       HWND window,
                                                       const DXGI_SWAP_CHAIN_DESC1* desc,
                                                       const DXGI_SWAP_CHAIN_FULLSCREEN_DESC* full,
-                                                      const DXGI_SWAP_CHAIN_RESTRICTIONS* restrict_out,
+                                                      IDXGIOutput* restrict_out,
                                                       IDXGISwapChain1** out) {
     const HRESULT hr =
         RealFactoryCreateSwapChainForHwnd(self, device, window, desc, full, restrict_out, out);
@@ -117,7 +115,7 @@ HRESULT STDMETHODCALLTYPE HookFCreateSwapChainForHwnd(IDXGIFactory2* self, IUnkn
 HRESULT STDMETHODCALLTYPE HookFCreateSwapChainForCoreWindow(IDXGIFactory2* self, IUnknown* device,
                                                             IUnknown* window,
                                                             const DXGI_SWAP_CHAIN_DESC1* desc,
-                                                            const DXGI_SWAP_CHAIN_RESTRICTIONS* restrict_out,
+                                                            IDXGIOutput* restrict_out,
                                                             IDXGISwapChain1** out) {
     const HRESULT hr =
         RealFactoryCreateSwapChainForCoreWindow(self, device, window, desc, restrict_out, out);
@@ -127,7 +125,7 @@ HRESULT STDMETHODCALLTYPE HookFCreateSwapChainForCoreWindow(IDXGIFactory2* self,
 
 HRESULT STDMETHODCALLTYPE HookFCreateSwapChainForComposition(IDXGIFactory2* self, IUnknown* device,
                                                              const DXGI_SWAP_CHAIN_DESC1* desc,
-                                                             const DXGI_SWAP_CHAIN_RESTRICTIONS* restrict_out,
+                                                             const void* restrict_out,
                                                              IDXGISwapChain1** out) {
     const HRESULT hr =
         RealFactoryCreateSwapChainForComposition(self, device, desc, restrict_out, out);
