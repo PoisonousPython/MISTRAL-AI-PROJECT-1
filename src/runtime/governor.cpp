@@ -6,6 +6,8 @@
 
 namespace tgov {
 
+void ReloadNow();
+
 namespace {
 
 std::string ConfigPath() {
@@ -102,8 +104,6 @@ void ShutdownAll() {
     LogClose();
 }
 
-void ReloadNow();
-
 void GovernorStart() {
     if (!g_stop_event) {
         LogOpen((SelfDirectory() + "\\governor.log").c_str());
@@ -125,6 +125,25 @@ void GovernorStart() {
             Logf("governor: worker thread creation failed (err=%lu)", GetLastError());
         }
     }
+}
+
+}  // namespace
+
+Pacer& PacerD3D9() {
+    static Pacer p;
+    return p;
+}
+Pacer& PacerDxgi() {
+    static Pacer p;
+    return p;
+}
+Pacer& PacerVulkan() {
+    static Pacer p;
+    return p;
+}
+Pacer& PacerOpenGl() {
+    static Pacer p;
+    return p;
 }
 
 void ReloadNow() {
@@ -149,8 +168,6 @@ void ReloadNow() {
         SchedulerShutdown();
     }
 }
-
-}  // namespace
 
 }  // namespace tgov
 
