@@ -98,7 +98,7 @@ code or the model and retry until both hold, then edit the main project files.
   error otherwise). Never leaves a half-launched game behind.
 
 ### CONTROL_SURFACE *(supertype — produces CONFIG, invokes INJECTOR)*
-- `WIZARD` (now): PowerShell, file picker, 4 questions, writes INI, launches.
+- `WIZARD` (now): `governor_setup.exe` (C++ console, COM file dialog), 4 questions, writes INI, launches.
 - `GUI` (future): same two responsibilities, nicer shell. Replaces nothing else.
 - GUI (later) will read CONFIG values and LOG output; no status struct is kept in code before a consumer exists.
 
@@ -144,8 +144,7 @@ code or the model and retry until both hold, then edit the main project files.
 | `src/hooks/` | HOOK_PLUMBING, CAPTURE×4, PRESENT_GATEWAY×4, LOG (implementation) | `tgov_win.h`, `iat.cpp`, `hooks_dx9.cpp`, `hooks_dxgi.cpp`, `hooks_opengl.cpp`, `hooks_vulkan.cpp` | `tgov_hooks` (WIN32) |
 | `src/scheduler/` | SCHEDULER | `scheduler.cpp` | `tgov_sched` (WIN32) |
 | `src/runtime/` | RUNTIME, GOVERNOR_DLL | `governor.cpp` | `governor` (SHARED) |
-| `tools/` | INJECTOR | `injector.cpp` | `governor_injector` |
-| `dist/` | CONTROL_SURFACE (WIZARD) | `governor-wizard.ps1`, `Launch Governor.bat` | packaged by CI |
+| `tools/` | INJECTOR, CONTROL_SURFACE (WIZARD) | `injector.cpp`, `governor_setup.cpp` | `governor_injector`, `governor_setup` (WIN32) |
 | `tests/` | PE_PARSER, CONFIG, PACER contracts | `test_portable.cpp` | `tgov_tests` |
 | `docs/` | this model | `ARCHITECTURE-EER.md` | — |
 
@@ -153,7 +152,7 @@ Dependency direction (allowed edges only):
 
 ```
 runtime → scheduler, hooks → {core, pe} → (nothing)
-tools/injector, dist/  (standalone; share only the CONFIG file contract)
+tools/injector, tools/governor_setup  (standalone; share only the CONFIG file contract)
 ```
 
 CONFIG's storage and access point (`Config& Cfg()`) live in `src/core/config.cpp`
