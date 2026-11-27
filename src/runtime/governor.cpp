@@ -44,6 +44,23 @@ void ApplyAllPacerRates() {
 
 }  // namespace
 
+Pacer& PacerD3D9() {
+    static Pacer p;
+    return p;
+}
+Pacer& PacerDxgi() {
+    static Pacer p;
+    return p;
+}
+Pacer& PacerVulkan() {
+    static Pacer p;
+    return p;
+}
+Pacer& PacerOpenGl() {
+    static Pacer p;
+    return p;
+}
+
 void ReloadNow() {
     const std::string path = ConfigPath();
     if (LoadConfigFromIni(path, Cfg())) {
