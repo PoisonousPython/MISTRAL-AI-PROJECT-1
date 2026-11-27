@@ -47,20 +47,20 @@ uint32_t HintName(uint8_t* img, uint32_t rva, const char* name) {
     return rva;
 }
 
-void BuildPe64(uint8_t* img) {
+void BuildPe(uint8_t* img, bool is64) {
     std::memset(img, 0, kImgSize);
     Put16(img, 0x5A4D);
     Put32(img + 0x3C, 0x80);
     Put32(img + 0x80, 0x00004550);
-    Put16(img + 0x84, 0x8664);
+    Put16(img + 0x84, is64 ? 0x8664 : 0x014C);
     Put16(img + 0x86, 3);
-    Put16(img + 0x94, 0xF0);
+    Put16(img + 0x94, is64 ? 0xF0 : 0xE0);
     Put16(img + 0x96, 0x0022);
 
     uint8_t* opt = img + 0x80 + 24;
-    Put16(opt, 0x20B);
+    Put16(opt, is64 ? 0x20B : 0x10B);
 
-    uint8_t* dirs = opt + 112;
+    uint8_t* dirs = opt + (is64 ? 112 : 96);
     Put32(dirs + 1 * 8 + 0, kImportDir);
     Put32(dirs + 1 * 8 + 4, 0x80);
 
@@ -76,17 +76,31 @@ void BuildPe64(uint8_t* img) {
     HintName(img, kHint0, "Direct3DCreate9");
     HintName(img, kHint1, "Present");
 
-    Put64(img + kOft0 + 0, kHint0);
-    Put64(img + kOft0 + 8, kHint0);  // same function imported twice under one name slot pair
-    Put64(img + kOft0 + 16, 0x00000000);
+    if (is64) {
+        Put64(img + kOft0 + 0, kHint0);
+        Put64(img + kOft0 + 8, kHint0);  // same function imported twice under one name slot pair
+        Put64(img + kOft0 + 16, 0x00000000);
 
-    Put64(img + kIat0 + 0, 0xAAAA0000AAAA0001ULL);
-    Put64(img + kIat0 + 8, 0xAAAA0000AAAA0002ULL);
-    Put64(img + kIat0 + 16, 0);
+        Put64(img + kIat0 + 0, 0xAAAA0000AAAA0001ULL);
+        Put64(img + kIat0 + 8, 0xAAAA0000AAAA0002ULL);
+        Put64(img + kIat0 + 16, 0);
 
-    Put64(img + kOft1 + 0, kHint1);
-    Put64(img + kIat1 + 0, 0xBBBB000000000001ULL);
-    Put64(img + kIat1 + 8, 0);
+        Put64(img + kOft1 + 0, kHint1);
+        Put64(img + kIat1 + 0, 0xBBBB000000000001ULL);
+        Put64(img + kIat1 + 8, 0);
+    } else {
+        Put32(img + kOft0 + 0, kHint0);
+        Put32(img + kOft0 + 4, kHint0);  // same function imported twice under one name slot pair
+        Put32(img + kOft0 + 8, 0x00000000);
+
+        Put32(img + kIat0 + 0, 0xAAAA0001U);
+        Put32(img + kIat0 + 4, 0xAAAA0002U);
+        Put32(img + kIat0 + 8, 0);
+
+        Put32(img + kOft1 + 0, kHint1);
+        Put32(img + kIat1 + 0, 0xBBBB0001U);
+        Put32(img + kIat1 + 4, 0);
+    }
 }
 
 }  // namespace
@@ -94,7 +108,7 @@ void BuildPe64(uint8_t* img) {
 int main() {
     {
         uint8_t img[kImgSize];
-        BuildPe64(img);
+        BuildPe(img, true);
 
         static int marker = 0;
         void* detour = const_cast<int*>(&marker);
@@ -128,6 +142,26 @@ int main() {
               "PE: non-PE buffer rejected");
 
         std::printf("-> PE parse: no crash on malformed input\n");
+    }
+
+    {
+        uint8_t img[kImgSize];
+        BuildPe(img, false);
+
+        static int marker32 = 0;
+        void* detour = const_cast<int*>(&marker32);
+
+        auto slots = pe::FindIatSlots(img, "d3d9.dll", "Direct3DCreate9");
+        CHECK(slots.size() == 2, "PE32: both import sites found");
+        CHECK(*reinterpret_cast<uint32_t*>(slots[0]) == 0xAAAA0001U,
+              "PE32: original pointer captured");
+        CHECK(pe::OverwriteIatSlots(slots, detour, nullptr) == 2, "PE32: both sites overwritten");
+
+        auto dxgi_slots = pe::FindIatSlots(img, "dxgi.dll", "Present");
+        CHECK(dxgi_slots.size() == 1, "PE32: second module descriptor matched");
+        CHECK(*reinterpret_cast<void**>(img + kIat1) == reinterpret_cast<void*>(0xBBBB0001U),
+              "PE32: dxgi IAT slot holds original before overwrite");
+        std::printf("-> PE32 parse: 4-byte thunks walked correctly\n");
     }
 
     {
@@ -184,6 +218,20 @@ int main() {
         CHECK(c3.cpu_rate_permille == 10000, "ini: oversized cpu_rate clamps to 10000");
         CHECK(c3.thread_sweep_ms == 60000, "ini: oversized thread_sweep clamps to 60000");
         CHECK(c3.spin_guard_ms == 15, "ini: oversized spin_guard clamps to 15");
+
+        FILE* f3 = std::fopen(inifile, "wb");
+        std::fputs("[present]\ndxgi_force_sync_interval = -9\n", f3);
+        std::fclose(f3);
+        LoadConfigFromIni(inifile, c3);
+        std::remove(inifile);
+        CHECK(c3.dxgi_force_sync_interval == -1, "ini: sync interval below -1 clamps to -1 (no force)");
+
+        FILE* f4 = std::fopen(inifile, "wb");
+        std::fputs("[present]\ndxgi_force_sync_interval = 9\n", f4);
+        std::fclose(f4);
+        LoadConfigFromIni(inifile, c3);
+        std::remove(inifile);
+        CHECK(c3.dxgi_force_sync_interval == 4, "ini: sync interval above 4 clamps to 4");
     }
 
     {

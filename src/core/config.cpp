@@ -8,6 +8,8 @@
 
 namespace tgov {
 
+namespace {
+
 std::string Trimmed(const std::string& s) {
     size_t b = 0;
     size_t e = s.size();
@@ -42,6 +44,12 @@ unsigned long long ParseMask(const std::string& v, unsigned long long def) {
     return x;
 }
 
+}  // namespace
+
+Config g_cfg;
+
+Config& Cfg() { return g_cfg; }
+
 bool LoadConfigFromIni(const std::string& path, Config& out) {
     FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return false;
@@ -64,7 +72,6 @@ bool LoadConfigFromIni(const std::string& path, Config& out) {
         if (key.empty()) continue;
         for (char& c : key) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         kv[section + "." + key] = val;
-        kv[key] = val;
     }
     std::fclose(f);
 
@@ -78,7 +85,7 @@ bool LoadConfigFromIni(const std::string& path, Config& out) {
     const double reserve =
         ParseNumber(kv["cpu.reserve_cores"], static_cast<double>(out.reserve_core_count));
     out.reserve_core_count = reserve < 0.0 ? 0u : static_cast<unsigned>(reserve);
-    out.priority_class = Trimmed(kv["cpu.priority_class"]);
+    out.priority_class = kv["cpu.priority_class"];
     out.reapply_thread_sched = ParseBool(kv["cpu.apply_to_new_threads"], out.reapply_thread_sched);
     const double sweep =
         ParseNumber(kv["cpu.thread_sweep_ms"], static_cast<double>(out.thread_sweep_ms));
@@ -91,6 +98,7 @@ bool LoadConfigFromIni(const std::string& path, Config& out) {
     out.dxgi_force_sync_interval =
         static_cast<int>(ParseNumber(kv["present.dxgi_force_sync_interval"], out.dxgi_force_sync_interval));
     if (out.dxgi_force_sync_interval > 4) out.dxgi_force_sync_interval = 4;
+    if (out.dxgi_force_sync_interval < -1) out.dxgi_force_sync_interval = -1;
 
     out.fps_global = ParseNumber(kv["framerate.fps_limit"], out.fps_global);
     out.fps_d3d9 = ParseNumber(kv["framerate.fps_d3d9"], out.fps_d3d9);
@@ -102,9 +110,9 @@ bool LoadConfigFromIni(const std::string& path, Config& out) {
     out.spin_guard_ms = spin < 0.0 ? 0u : static_cast<unsigned>(spin);
     if (out.spin_guard_ms > 15) out.spin_guard_ms = 15;
 
-    out.power_plan = Trimmed(kv["power.plan"]);
+    out.power_plan = kv["power.plan"];
     out.vulkan_layer = ParseBool(kv["vulkan.layer"], out.vulkan_layer);
-    out.vulkan_pace_point = Trimmed(kv["vulkan.pace_point"]);
+    out.vulkan_pace_point = kv["vulkan.pace_point"];
     if (out.vulkan_pace_point != "queue_submit") out.vulkan_pace_point = "queue_present";
 
     return true;

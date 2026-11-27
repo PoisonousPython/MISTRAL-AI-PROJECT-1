@@ -57,7 +57,6 @@ void Pacer::Wait() {
         } else {
             last_ = now;
         }
-        ++paced_;
     }
     if (sleep_needed) PreciseSleep(wake - std::chrono::steady_clock::now());
 }

@@ -28,7 +28,6 @@ typedef VkResult(TGOV_VKCALL* PFN_vkQueuePresentKHR)(VkQueue, const void*);
 typedef VkResult(TGOV_VKCALL* PFN_vkQueueSubmit)(VkQueue, std::uint32_t, const void*, void*);
 typedef PFN_vkVoidFunction(TGOV_VKCALL* PFN_vkGetInstanceProcAddr)(VkInstance, const char*);
 typedef PFN_vkVoidFunction(TGOV_VKCALL* PFN_vkGetDeviceProcAddr)(VkDevice, const char*);
-typedef VkResult(TGOV_VKCALL* PFN_vkEnumerateInstanceLayerProperties)(std::uint32_t*, void*);
 typedef VkResult(TGOV_VKCALL* PFN_vkEnumerateInstanceExtensionProperties)(const char*,
                                                                           std::uint32_t*, void*);
 typedef VkResult(TGOV_VKCALL* PFN_vkCreateInstance)(const void*, const void*, VkInstance*);
@@ -214,7 +213,7 @@ VkResult TGOV_VKCALL HookQueueSubmit(VkQueue queue, std::uint32_t count, const v
 
 }  // namespace
 
-unsigned InstallVulkanHooks() {
+void InstallVulkanHooks() {
     unsigned n = 0;
     if (PaceOnPresent()) {
         if (!RealQueuePresent) {
@@ -235,7 +234,6 @@ unsigned InstallVulkanHooks() {
                  "titles need the layer mode, see README (vulkan.layer)");
         }
     }
-    return n;
 }
 
 void InstallVulkanLayerExports() {

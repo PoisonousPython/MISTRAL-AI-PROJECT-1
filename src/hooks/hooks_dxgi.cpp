@@ -43,8 +43,6 @@ typedef HRESULT(STDMETHODCALLTYPE* PFN_FactoryCreateSwapChainForCoreWindow)(
     IDXGISwapChain1**);
 typedef HRESULT(STDMETHODCALLTYPE* PFN_FactoryCreateSwapChainForComposition)(
     IDXGIFactory2*, const DXGI_SWAP_CHAIN_DESC1*, IDXGIOutput*, IDXGISwapChain1**);
-typedef void** Vtable;
-
 PFN_CreateDXGIFactory RealCreateDXGIFactory = nullptr;
 PFN_CreateDXGIFactory1 RealCreateDXGIFactory1 = nullptr;
 PFN_CreateDXGIFactory2 RealCreateDXGIFactory2 = nullptr;
@@ -58,11 +56,6 @@ PFN_FactoryCreateSwapChain RealFactoryCreateSwapChain = nullptr;
 PFN_FactoryCreateSwapChainForHwnd RealFactoryCreateSwapChainForHwnd = nullptr;
 PFN_FactoryCreateSwapChainForCoreWindow RealFactoryCreateSwapChainForCoreWindow = nullptr;
 PFN_FactoryCreateSwapChainForComposition RealFactoryCreateSwapChainForComposition = nullptr;
-
-Vtable g_swapchain_vtable = nullptr;
-Vtable g_swapchain1_vtable = nullptr;
-Vtable g_factory_vtable = nullptr;
-Vtable g_factory2_vtable = nullptr;
 
 void HookFactory(void* factory);
 void HookSwapchain(IDXGISwapChain* swapchain);
@@ -87,15 +80,13 @@ HRESULT STDMETHODCALLTYPE HookSwapchainPresent1(IDXGISwapChain1* self, UINT sync
 void HookSwapchain(IDXGISwapChain* swapchain) {
     if (!swapchain) return;
     VtableHook(swapchain, kSwapChain_Present, reinterpret_cast<void*>(&HookSwapchainPresent),
-               reinterpret_cast<void**>(&RealPresent),
-               reinterpret_cast<void***>(&g_swapchain_vtable));
+               reinterpret_cast<void**>(&RealPresent));
 
     IDXGISwapChain1* sc1 = nullptr;
     if (SUCCEEDED(swapchain->QueryInterface(__uuidof(IDXGISwapChain1),
                                             reinterpret_cast<void**>(&sc1)))) {
         VtableHook(sc1, kSwapChain1_Present1, reinterpret_cast<void*>(&HookSwapchainPresent1),
-                   reinterpret_cast<void**>(&RealPresent1),
-                   reinterpret_cast<void***>(&g_swapchain1_vtable));
+                   reinterpret_cast<void**>(&RealPresent1));
         sc1->Release();
     }
     Logf("dxgi: swapchain %p hooked", swapchain);
@@ -146,24 +137,20 @@ void HookFactory(void* factory) {
     if (SUCCEEDED(static_cast<IUnknown*>(factory)->QueryInterface(
             __uuidof(IDXGIFactory), reinterpret_cast<void**>(&f1)))) {
         VtableHook(f1, kFactory_CreateSwapChain, reinterpret_cast<void*>(&HookFCreateSwapChain),
-                   reinterpret_cast<void**>(&RealFactoryCreateSwapChain),
-                   reinterpret_cast<void***>(&g_factory_vtable));
+                   reinterpret_cast<void**>(&RealFactoryCreateSwapChain));
         f1->Release();
     }
     IDXGIFactory2* f2 = nullptr;
     if (SUCCEEDED(static_cast<IUnknown*>(factory)->QueryInterface(
             __uuidof(IDXGIFactory2), reinterpret_cast<void**>(&f2)))) {
         VtableHook(f2, kFactory2_CreateSwapChainForHwnd, reinterpret_cast<void*>(&HookFCreateSwapChainForHwnd),
-                   reinterpret_cast<void**>(&RealFactoryCreateSwapChainForHwnd),
-                   reinterpret_cast<void***>(&g_factory2_vtable));
+                   reinterpret_cast<void**>(&RealFactoryCreateSwapChainForHwnd));
         VtableHook(f2, kFactory2_CreateSwapChainForCoreWindow,
                    reinterpret_cast<void*>(&HookFCreateSwapChainForCoreWindow),
-                   reinterpret_cast<void**>(&RealFactoryCreateSwapChainForCoreWindow),
-                   reinterpret_cast<void***>(&g_factory2_vtable));
+                   reinterpret_cast<void**>(&RealFactoryCreateSwapChainForCoreWindow));
         VtableHook(f2, kFactory2_CreateSwapChainForComposition,
                    reinterpret_cast<void*>(&HookFCreateSwapChainForComposition),
-                   reinterpret_cast<void**>(&RealFactoryCreateSwapChainForComposition),
-                   reinterpret_cast<void***>(&g_factory2_vtable));
+                   reinterpret_cast<void**>(&RealFactoryCreateSwapChainForComposition));
         f2->Release();
     }
     Logf("dxgi: factory %p hooked", factory);
@@ -224,7 +211,7 @@ HRESULT WINAPI HookD3D10CreateDeviceAndSwapChain1(IDXGIAdapter* adapter, D3D10_D
 
 }  // namespace
 
-unsigned InstallDxgiHooks() {
+void InstallDxgiHooks() {
     unsigned n = 0;
     if (!RealCreateDXGIFactory) {
         n += HookIatAllModules("dxgi.dll", "CreateDXGIFactory", reinterpret_cast<void*>(&HookCreateDXGIFactory),
@@ -254,7 +241,6 @@ unsigned InstallDxgiHooks() {
                                reinterpret_cast<void**>(&RealD3D10CreateDeviceAndSwapChain1));
     }
     if (n) Logf("dxgi: capture-path hooks installed (%u sites)", n);
-    return n;
 }
 
 }  // namespace tgov

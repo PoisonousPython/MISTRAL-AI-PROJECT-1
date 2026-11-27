@@ -204,20 +204,32 @@ Read this before judging the design:
 
 ## Layout
 
+The project is modular. Each directory is one entity in the architecture model
+([docs/ARCHITECTURE-EER.md](docs/ARCHITECTURE-EER.md)), built as its own CMake
+target, and dependencies only flow downward: `runtime → scheduler, hooks → {core, pe}`
+and nothing else.
+
 ```
-src/tgov_types.h      portable core: config struct, pacer, parse helpers, PE API
-src/tgov_win.h        Windows glue declarations
-src/config.cpp        INI reader
-src/pacer.cpp         frame pacing math (portable core)
-src/pe.cpp            import-table walker + IAT overwrite (own byte-level parser)
-src/iat.cpp           logging, self-module discovery, IAT hooks across all modules
-src/scheduler.cpp     job object, affinity sweeps, priority, power plan
-src/hooks_dx9.cpp     D3D9/D3D9Ex capture + Present/PresentEx
-src/hooks_dxgi.cpp    D3D10/11/12 via DXGI capture-path + Present/Present1
-src/hooks_opengl.cpp  WGL + ANGLE/EGL swap pacing
-src/hooks_vulkan.cpp  IAT pacing + optional real Vulkan layer
-src/governor.cpp      lifecycle, config reload, worker thread
-tools/injector.cpp    suspended-launch / attach injector
+src/core/             CONFIG + PACER + PE_PARSER declarations
+  tgov_types.h          config struct, pacer, parse helpers, PE API
+  config.cpp            INI reader
+  pacer.cpp             frame pacing math
+src/pe/               PE_PARSER (depends on nothing)
+  pe.cpp                import-table walker + IAT overwrite (own byte-level parser)
+src/hooks/            CAPTURE + PRESENT_GATEWAY + HOOK_PLUMBING
+  tgov_win.h            Windows glue declarations
+  iat.cpp               logging, self-module discovery, IAT/COM vtable hooks across all modules
+  hooks_dx9.cpp         D3D9/D3D9Ex capture + Present/PresentEx
+  hooks_dxgi.cpp        D3D10/11/12 via DXGI capture-path + Present/Present1
+  hooks_opengl.cpp      WGL + ANGLE/EGL swap pacing
+  hooks_vulkan.cpp      IAT pacing + optional real Vulkan layer
+src/scheduler/        SCHEDULER
+  scheduler.cpp         job object, affinity sweeps, priority, power plan
+src/runtime/          GOVERNOR_DLL lifecycle
+  governor.cpp          lifecycle, config reload, worker thread
+tools/injector.cpp    INJECTOR: suspended-launch / attach
+docs/                 ARCHITECTURE-EER.md — the entity model every change must fit
 config/               sample INI, fully documented
 tests/                portable test suite
+dist/                 player wizard + launcher
 ```

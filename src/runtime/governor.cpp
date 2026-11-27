@@ -1,7 +1,5 @@
 #include "tgov_win.h"
 
-#include "tgov_types.h"
-
 #include <string>
 #include <timeapi.h>
 
@@ -9,36 +7,42 @@ namespace tgov {
 
 namespace {
 
-Config g_cfg;
-bool g_initialized = false;
-bool g_shutdown = false;
-HANDLE g_worker = nullptr;
-HANDLE g_stop_event = nullptr;
-HANDLE g_time_knob = nullptr;
-
-Config& MutableCfg() { return g_cfg; }
-
-}  // namespace
-
-Config& Cfg() { return g_cfg; }
+std::string ConfigPath() {
+    const std::string dir = SelfDirectory();
+    return dir + "\\thermal_governor.ini";
+}
 
 double FpsLimit(const char* api_key) {
+    const Config& c = Cfg();
     double per_api = 0.0;
     switch (api_key[0]) {
         case 'd':
-            per_api = api_key[1] == '9' ? g_cfg.fps_d3d9 : g_cfg.fps_dxgi;
+            per_api = api_key[1] == '9' ? c.fps_d3d9 : c.fps_dxgi;
             break;
         case 'v':
-            per_api = g_cfg.fps_vulkan;
+            per_api = c.fps_vulkan;
             break;
         case 'o':
-            per_api = g_cfg.fps_opengl;
+            per_api = c.fps_opengl;
             break;
         default:
             break;
     }
-    return per_api > 0.0 ? per_api : g_cfg.fps_global;
+    return per_api > 0.0 ? per_api : c.fps_global;
 }
+
+void ApplyAllPacerRates() {
+    PacerD3D9().SetRate(FpsLimit("d9"));
+    PacerDxgi().SetRate(FpsLimit("dx"));
+    PacerVulkan().SetRate(FpsLimit("vk"));
+    PacerOpenGl().SetRate(FpsLimit("gl"));
+    PacerD3D9().SetSpinGuard(Cfg().spin_guard_ms);
+    PacerDxgi().SetSpinGuard(Cfg().spin_guard_ms);
+    PacerVulkan().SetSpinGuard(Cfg().spin_guard_ms);
+    PacerOpenGl().SetSpinGuard(Cfg().spin_guard_ms);
+}
+
+}  // namespace
 
 Pacer& PacerD3D9() {
     static Pacer p;
@@ -57,66 +61,57 @@ Pacer& PacerOpenGl() {
     return p;
 }
 
-void ApplyAllPacerRates() {
-    PacerD3D9().SetRate(FpsLimit("d9"));
-    PacerDxgi().SetRate(FpsLimit("dx"));
-    PacerVulkan().SetRate(FpsLimit("vk"));
-    PacerOpenGl().SetRate(FpsLimit("gl"));
-    PacerD3D9().SetSpinGuard(g_cfg.spin_guard_ms);
-    PacerDxgi().SetSpinGuard(g_cfg.spin_guard_ms);
-    PacerVulkan().SetSpinGuard(g_cfg.spin_guard_ms);
-    PacerOpenGl().SetSpinGuard(g_cfg.spin_guard_ms);
-}
-
-static std::string ConfigPath() {
-    std::string dir = SelfDirectory();
-    return dir + "\\thermal_governor.ini";
-}
-
 void ReloadNow() {
     const std::string path = ConfigPath();
-    if (LoadConfigFromIni(path, g_cfg)) {
+    if (LoadConfigFromIni(path, Cfg())) {
         Logf("config: loaded %s", path.c_str());
     } else {
         Logf("config: '%s' not found or unreadable, using built-in defaults "
              "(enabled=false => governor idle)",
              path.c_str());
-        g_cfg.enabled = false;
+        Cfg().enabled = false;
     }
     ApplyAllPacerRates();
-    SchedulerStart();
+    if (Cfg().enabled) {
+        InstallD3D9Hooks();
+        InstallDxgiHooks();
+        InstallOpenGLHooks();
+        InstallVulkanHooks();
+        InstallVulkanLayerExports();
+        SchedulerStart();
+    } else {
+        SchedulerShutdown();
+    }
 }
 
-static DWORD WINAPI WorkerThread(LPVOID) {
+namespace {
+
+HANDLE g_worker = nullptr;
+HANDLE g_stop_event = nullptr;
+
+DWORD WINAPI WorkerThread(LPVOID) {
     ReloadNow();
-    if (!g_cfg.enabled) {
+    if (!Cfg().enabled) {
         Logf("governor: disabled in config - pacing and scheduling stay off");
-        g_initialized = false;
         return 0;
     }
-    g_initialized = true;
 
-    InstallD3D9Hooks();
-    InstallDxgiHooks();
-    InstallOpenGLHooks();
-    InstallVulkanHooks();
-    InstallVulkanLayerExports();
-
+    const Config& c = Cfg();
     Logf("governor: active (fps d3d9=%.1f dxgi=%.1f vulkan=%.1f opengl=%.1f, cpu cap=%u permille)",
-         g_cfg.fps_d3d9 > 0 ? g_cfg.fps_d3d9 : g_cfg.fps_global,
-         g_cfg.fps_dxgi > 0 ? g_cfg.fps_dxgi : g_cfg.fps_global,
-         g_cfg.fps_vulkan > 0 ? g_cfg.fps_vulkan : g_cfg.fps_global,
-         g_cfg.fps_opengl > 0 ? g_cfg.fps_opengl : g_cfg.fps_global, g_cfg.cpu_rate_permille);
+         c.fps_d3d9 > 0 ? c.fps_d3d9 : c.fps_global,
+         c.fps_dxgi > 0 ? c.fps_dxgi : c.fps_global,
+         c.fps_vulkan > 0 ? c.fps_vulkan : c.fps_global,
+         c.fps_opengl > 0 ? c.fps_opengl : c.fps_global, c.cpu_rate_permille);
 
     for (;;) {
-        const DWORD wait = g_cfg.reapply_thread_sched ? g_cfg.thread_sweep_ms : 1000;
+        const DWORD wait = c.reapply_thread_sched ? c.thread_sweep_ms : 1000;
         if (WaitForSingleObjectEx(g_stop_event, wait, FALSE) != WAIT_TIMEOUT) break;
         SchedulerSweep();
     }
     return 0;
 }
 
-static void ShutdownAll() {
+void ShutdownAll() {
     if (g_stop_event) {
         SetEvent(g_stop_event);
         if (g_worker) {
@@ -130,6 +125,8 @@ static void ShutdownAll() {
     SchedulerShutdown();
     LogClose();
 }
+
+}  // namespace
 
 }  // namespace tgov
 
@@ -154,7 +151,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         if (!tgov::g_worker) {
             tgov::Logf("governor: worker thread creation failed (err=%lu)", GetLastError());
         }
-    } else if (reason == DLL_PROCESS_DETACH && tgov::g_worker != nullptr) {
+    } else if (reason == DLL_PROCESS_DETACH) {
         ::timeEndPeriod(1);
         tgov::ShutdownAll();
     }

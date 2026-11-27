@@ -1,4 +1,9 @@
-#include "tgov_win.h"
+#include "tgov_log.h"
+#include "tgov_types.h"
+
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
 
 #include <tlhelp32.h>
 
@@ -12,6 +17,7 @@ typedef struct _JOBOBJECT_CPU_RATE_CONTROL_INFORMATION {
 #endif
 
 #include <powrprof.h>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -28,7 +34,7 @@ struct Guid {
 
 bool ParseGuid(const char* s, Guid& g) {
     unsigned int t[11] = {};
-    if (std::sscanf(s, "%8lx-%4x-%4x-%2x%2x-%2x%2x%2x%2x%2x%2x", &t[0], &t[1], &t[2], &t[3],
+    if (std::sscanf(s, "%8x-%4x-%4x-%2x%2x-%2x%2x%2x%2x%2x%2x", &t[0], &t[1], &t[2], &t[3],
                     &t[4], &t[5], &t[6], &t[7], &t[8], &t[9], &t[10]) != 11)
         return false;
     g.a = t[0];
@@ -47,7 +53,6 @@ bool ParseGuid(const char* s, Guid& g) {
 
 HANDLE g_job = nullptr;
 unsigned long long g_thread_mask = 0;
-DWORD g_last_error_code = 0;
 std::vector<DWORD> g_own_thread_ids;
 
 unsigned long long BuildThreadMask() {
@@ -161,23 +166,44 @@ void ApplyPowerPlan() {
     }
 }
 
-void ApplyJobLimits() {
-    const Config& c = Cfg();
-    if (g_job && !c.cpu_rate_permille) {
+void ClearCpuRateCap() {
+    if (!g_job) return;
+    JOBOBJECT_CPU_RATE_CONTROL_INFORMATION rate{};
+    if (QueryInformationJobObject(g_job, JobObjectCpuRateControlInformation, &rate, sizeof(rate),
+                                  nullptr) &&
+        (rate.ControlFlags & JOB_OBJECT_CPU_RATE_CONTROL_ENABLE)) {
         JOBOBJECT_CPU_RATE_CONTROL_INFORMATION off{};
-        off.ControlFlags = 0;
         if (SetInformationJobObject(g_job, JobObjectCpuRateControlInformation, &off, sizeof(off))) {
             Logf("sched: cpu rate cap removed");
         }
     }
-    if (g_job && !c.commit_limit_mb) {
+}
+
+void ClearCommitLimit() {
+    if (!g_job) return;
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION ext{};
+    if (QueryInformationJobObject(g_job, JobObjectExtendedLimitInformation, &ext, sizeof(ext),
+                                  nullptr) &&
+        (ext.BasicLimitInformation.LimitFlags & JOB_OBJECT_LIMIT_PROCESS_MEMORY)) {
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION clear{};
         if (SetInformationJobObject(g_job, JobObjectExtendedLimitInformation, &clear,
                                     sizeof(clear))) {
             Logf("sched: commit limit removed");
         }
     }
-    if (!c.cpu_rate_permille && !c.commit_limit_mb) return;
+}
+
+void ClearJobCaps() {
+    ClearCpuRateCap();
+    ClearCommitLimit();
+}
+
+void ApplyJobLimits() {
+    const Config& c = Cfg();
+    if (!c.cpu_rate_permille && !c.commit_limit_mb) {
+        ClearJobCaps();
+        return;
+    }
 
     if (!g_job) {
         g_job = CreateJobObjectA(nullptr, "ThermalGovernor");
@@ -194,8 +220,8 @@ void ApplyJobLimits() {
         Logf("sched: process assigned to governor job object");
     }
 
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION ext{};
     if (c.commit_limit_mb) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION ext{};
         ext.ProcessMemoryLimit = c.commit_limit_mb * 1024ULL * 1024ULL;
         ext.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_PROCESS_MEMORY;
         if (!SetInformationJobObject(g_job, JobObjectExtendedLimitInformation, &ext, sizeof(ext))) {
@@ -203,6 +229,8 @@ void ApplyJobLimits() {
         } else {
             Logf("sched: commit limit set to %llu MB", c.commit_limit_mb);
         }
+    } else {
+        ClearCommitLimit();
     }
 
     if (c.cpu_rate_permille) {
@@ -210,11 +238,13 @@ void ApplyJobLimits() {
         rate.CpuRate = c.cpu_rate_permille;
         rate.ControlFlags = JOB_OBJECT_CPU_RATE_CONTROL_ENABLE | JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP;
         if (!SetInformationJobObject(g_job, JobObjectCpuRateControlInformation, &rate, sizeof(rate))) {
-            g_last_error_code = GetLastError();
-            Logf("sched: cpu rate cap failed (err=%lu) - requires Windows 8+", g_last_error_code);
+            const DWORD err = GetLastError();
+            Logf("sched: cpu rate cap failed (err=%lu) - requires Windows 8+", err);
         } else {
             Logf("sched: cpu rate hard cap set to %.1f%%", c.cpu_rate_permille / 100.0);
         }
+    } else {
+        ClearCpuRateCap();
     }
 }
 
@@ -242,6 +272,7 @@ void SchedulerSweep() {
 }
 
 void SchedulerShutdown() {
+    ClearJobCaps();
     if (g_job) {
         CloseHandle(g_job);
         g_job = nullptr;

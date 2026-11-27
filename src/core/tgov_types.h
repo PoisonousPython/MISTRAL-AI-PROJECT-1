@@ -33,18 +33,11 @@ struct Config {
     std::string vulkan_pace_point = "queue_present";
 };
 
-struct PacedTarget {
-    std::string name;
-    double fps = 0.0;
-    unsigned long long paces = 0;
-};
-
 class Pacer {
 public:
     void SetRate(double fps);
     void SetSpinGuard(unsigned spin_ms);
     void Wait();
-    unsigned long long Paces() const { return paced_; }
 
 private:
     void PreciseSleep(std::chrono::steady_clock::duration remaining);
@@ -53,16 +46,12 @@ private:
     std::chrono::steady_clock::duration interval_{0};
     std::chrono::steady_clock::time_point last_{};
     unsigned spin_ms_ = 2;
-    unsigned long long paced_ = 0;
 };
 
 
-bool ParseBool(const std::string& v, bool def);
-double ParseNumber(const std::string& v, double def);
-unsigned long long ParseMask(const std::string& v, unsigned long long def);
-
 bool LoadConfigFromIni(const std::string& path, Config& out);
-std::string Trimmed(const std::string& s);
+
+Config& Cfg();
 
 namespace pe {
 
