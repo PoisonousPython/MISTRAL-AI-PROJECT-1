@@ -8,6 +8,8 @@
 
 namespace tgov {
 
+namespace {
+
 std::string Trimmed(const std::string& s) {
     size_t b = 0;
     size_t e = s.size();
@@ -41,6 +43,12 @@ unsigned long long ParseMask(const std::string& v, unsigned long long def) {
     if (end == t.c_str()) return def;
     return x;
 }
+
+}  // namespace
+
+Config g_cfg;
+
+Config& Cfg() { return g_cfg; }
 
 bool LoadConfigFromIni(const std::string& path, Config& out) {
     FILE* f = std::fopen(path.c_str(), "rb");
@@ -91,6 +99,7 @@ bool LoadConfigFromIni(const std::string& path, Config& out) {
     out.dxgi_force_sync_interval =
         static_cast<int>(ParseNumber(kv["present.dxgi_force_sync_interval"], out.dxgi_force_sync_interval));
     if (out.dxgi_force_sync_interval > 4) out.dxgi_force_sync_interval = 4;
+    if (out.dxgi_force_sync_interval < -1) out.dxgi_force_sync_interval = -1;
 
     out.fps_global = ParseNumber(kv["framerate.fps_limit"], out.fps_global);
     out.fps_d3d9 = ParseNumber(kv["framerate.fps_d3d9"], out.fps_d3d9);

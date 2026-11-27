@@ -22,27 +22,21 @@ void InitSelfModule();
 unsigned HookIatAllModules(const char* module_name, const char* function_name,
                            void* detour, void** original_out);
 
-bool VtableHook(void* com_instance, unsigned index, void* detour, void** original_out,
-                void*** vtable_out);
-bool VtableRestore(void** vtable, unsigned index, void* detour, void* original);
-
-unsigned InstallD3D9Hooks();
+void VtableHook(void* com_instance, unsigned index, void* detour, void** original_out);
 
 Pacer& PacerD3D9();
 Pacer& PacerDxgi();
 Pacer& PacerVulkan();
 Pacer& PacerOpenGl();
 
-double FpsLimit(const char* api_key);
-unsigned InstallDxgiHooks();
-unsigned InstallOpenGLHooks();
-unsigned InstallVulkanHooks();
+void InstallD3D9Hooks();
+void InstallDxgiHooks();
+void InstallOpenGLHooks();
+void InstallVulkanHooks();
 void InstallVulkanLayerExports();
 
 void SchedulerStart();
 void SchedulerSweep();
 void SchedulerShutdown();
-
-void ApplyAllPacerRates();
 
 }  // namespace tgov

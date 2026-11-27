@@ -21,8 +21,6 @@ typedef HRESULT(STDMETHODCALLTYPE* PFN_CreateDeviceEx)(
     D3DDISPLAYMODEEX*, IDirect3DDevice9Ex**);
 typedef HRESULT(STDMETHODCALLTYPE* PFN_Present)(IDirect3DDevice9*, const RECT*, const RECT*,
                                                 HWND, const RGNDATA*, DWORD);
-typedef void** Vtable;
-
 HRESULT STDMETHODCALLTYPE HookPresent(IDirect3DDevice9*, const RECT*, const RECT*, HWND, const RGNDATA*, DWORD);
 HRESULT STDMETHODCALLTYPE HookPresentEx(IDirect3DDevice9Ex*, const RECT*, const RECT*, HWND, const RGNDATA*, DWORD);
 HRESULT STDMETHODCALLTYPE HookCreateDevice(IDirect3D9*, UINT, D3DDEVTYPE, HWND, DWORD, D3DPRESENT_PARAMETERS*, IDirect3DDevice9**);
@@ -34,21 +32,16 @@ PFN_CreateDevice RealCreateDevice = nullptr;
 PFN_CreateDeviceEx RealCreateDeviceEx = nullptr;
 PFN_Present RealPresent = nullptr;
 PFN_Present RealPresentEx = nullptr;
-Vtable g_device_vtable = nullptr;
-Vtable g_d3d9_vtable = nullptr;
-
 void HookDevice(IDirect3DDevice9* device) {
     IDirect3DDevice9Ex* ex = nullptr;
     if (SUCCEEDED(device->QueryInterface(__uuidof(IDirect3DDevice9Ex),
                                          reinterpret_cast<void**>(&ex)))) {
         VtableHook(ex, kDevice_PresentEx, reinterpret_cast<void*>(&HookPresentEx),
-                   reinterpret_cast<void**>(&RealPresentEx),
-                   reinterpret_cast<void***>(&g_device_vtable));
+                   reinterpret_cast<void**>(&RealPresentEx));
         ex->Release();
     }
     VtableHook(device, kDevice_Present, reinterpret_cast<void*>(&HookPresent),
-               reinterpret_cast<void**>(&RealPresent),
-               reinterpret_cast<void***>(&g_device_vtable));
+               reinterpret_cast<void**>(&RealPresent));
 }
 
 HRESULT STDMETHODCALLTYPE HookPresent(IDirect3DDevice9* self, const RECT* src, const RECT* dst,
@@ -87,8 +80,7 @@ IDirect3D9* WINAPI HookDirect3DCreate9(UINT sdk_version) {
     IDirect3D9* d3d = RealDirect3DCreate9(sdk_version);
     if (d3d) {
         VtableHook(d3d, kIDirect3D9_CreateDevice, reinterpret_cast<void*>(&HookCreateDevice),
-                   reinterpret_cast<void**>(&RealCreateDevice),
-                   reinterpret_cast<void***>(&g_d3d9_vtable));
+                   reinterpret_cast<void**>(&RealCreateDevice));
     }
     return d3d;
 }
@@ -97,18 +89,16 @@ HRESULT WINAPI HookDirect3DCreate9Ex(UINT sdk_version, IDirect3D9Ex** out) {
     const HRESULT hr = RealDirect3DCreate9Ex(sdk_version, out);
     if (SUCCEEDED(hr) && out && *out) {
         VtableHook(*out, kIDirect3D9_CreateDevice, reinterpret_cast<void*>(&HookCreateDevice),
-                   reinterpret_cast<void**>(&RealCreateDevice),
-                   reinterpret_cast<void***>(&g_d3d9_vtable));
+                   reinterpret_cast<void**>(&RealCreateDevice));
         VtableHook(*out, kIDirect3D9Ex_CreateDeviceEx, reinterpret_cast<void*>(&HookCreateDeviceEx),
-                   reinterpret_cast<void**>(&RealCreateDeviceEx),
-                   reinterpret_cast<void***>(&g_d3d9_vtable));
+                   reinterpret_cast<void**>(&RealCreateDeviceEx));
     }
     return hr;
 }
 
 }  // namespace
 
-unsigned InstallD3D9Hooks() {
+void InstallD3D9Hooks() {
     unsigned n = 0;
     if (!RealDirect3DCreate9) {
         n += HookIatAllModules("d3d9.dll", "Direct3DCreate9", reinterpret_cast<void*>(&HookDirect3DCreate9),
@@ -119,7 +109,6 @@ unsigned InstallD3D9Hooks() {
                                reinterpret_cast<void**>(&RealDirect3DCreate9Ex));
     }
     if (n) Logf("d3d9: creation-path hooks installed (%u sites)", n);
-    return n;
 }
 
 }  // namespace tgov

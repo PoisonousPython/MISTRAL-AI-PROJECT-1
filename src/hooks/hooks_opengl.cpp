@@ -32,7 +32,7 @@ EGLBoolean WINAPI HookEglSwapBuffers(EGLDisplay display, EGLSurface surface) {
 
 }  // namespace
 
-unsigned InstallOpenGLHooks() {
+void InstallOpenGLHooks() {
     unsigned n = 0;
     if (!RealWglSwapBuffers) {
         n += HookIatAllModules("opengl32.dll", "wglSwapBuffers", reinterpret_cast<void*>(&HookWglSwapBuffers),
@@ -49,7 +49,6 @@ unsigned InstallOpenGLHooks() {
                                reinterpret_cast<void**>(&RealEglSwapBuffers));
     }
     if (n) Logf("opengl: swap hooks installed (%u sites)", n);
-    return n;
 }
 
 }  // namespace tgov

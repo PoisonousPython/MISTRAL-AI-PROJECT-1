@@ -21,7 +21,7 @@ code or the model and retry until both hold, then edit the main project files.
 | G4 | Bound CPU rate, core placement, priority, commit | CPU work is the dominant CPU→heat path | SCHEDULER |
 | G5 | Fail safe: unconfigured = untouched process | A misconfigured tool that breaks games is discarded | RUNTIME (lifecycle) |
 | G6 | Ship to non-coders as a download that just works | The goal's audience cannot build software | DISTRIBUTION |
-| G7 | Grow toward a GUI without redesign | Control surface is the only part allowed to change shape | CONTROL_SURFACE, PacedTarget contract |
+| G7 | Grow toward a GUI without redesign | Control surface is the only part allowed to change shape | CONTROL_SURFACE, CONFIG file contract |
 
 ## Entities and attributes
 
@@ -63,8 +63,8 @@ code or the model and retry until both hold, then edit the main project files.
 - Law: IAT + COM vtable only. No byte patching, no detour trampolines.
 
 ### HOOK_PLUMBING
-- `HookIatAllModules(module, function, detour) → original`
-- `VtableHook(obj, slot, detour) → {original, vtable}`; `VtableRestore`
+- `HookIatAllModules(module, function, detour) → sites-hooked`
+- `VtableHook(obj, slot, detour) → original` (fire-and-forget; the DLL unloads with the process, so there is no restore path)
 - `VirtualProtect` scoped to the exact 8-byte slot being written.
 
 ### PE_PARSER
@@ -94,7 +94,7 @@ code or the model and retry until both hold, then edit the main project files.
 ### CONTROL_SURFACE *(supertype — produces CONFIG, invokes INJECTOR)*
 - `WIZARD` (now): PowerShell, file picker, 4 questions, writes INI, launches.
 - `GUI` (future): same two responsibilities, nicer shell. Replaces nothing else.
-- Shared data contract: `PacedTarget {name, fps, paces}` for future status display.
+- GUI (later) will read CONFIG values and LOG output; no status struct is kept in code before a consumer exists.
 
 ### HOST_PROCESS
 - The game. Attributes observed: pid, exe name, bitness. Never modified in code.
@@ -150,11 +150,15 @@ runtime → scheduler, hooks → {core, pe} → (nothing)
 tools/injector, dist/  (standalone; share only the CONFIG file contract)
 ```
 
+CONFIG's storage and access point (`Config& Cfg()`) live in `src/core/config.cpp`
+(implementation, not just the declaration) — one codebase for the whole CONFIG
+entity. `CONFIG.enabled` gates everything: RUNTIME installs hooks and starts the
+SCHEDULER only when it is true, and reload re-evaluates it.
+
 The LOG interface lives in `src/core/tgov_log.h` so every writer listed above
 (RUNTIME, CAPTURE, SCHEDULER) can reach it along an allowed edge; its
 implementation lives in HOOK_PLUMBING (`iat.cpp`) and is linked only into the
-final DLL. CONFIG's access point (`Config& Cfg()`) is declared in
-`tgov_types.h` and implemented by RUNTIME.
+final DLL.
 
 ## Change protocol (from the project owner)
 

@@ -115,34 +115,20 @@ unsigned HookIatAllModules(const char* module_name, const char* function_name,
     return total;
 }
 
-bool VtableHook(void* com_instance, unsigned index, void* detour, void** original_out,
-                void*** vtable_out) {
+void VtableHook(void* com_instance, unsigned index, void* detour, void** original_out) {
     void** vtable = *reinterpret_cast<void***>(com_instance);
     void** slot = &vtable[index];
-    if (*slot == detour) return false;
+    if (*slot == detour) return;
 
     DWORD old_protect = 0;
-    if (!VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &old_protect)) return false;
+    if (!VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &old_protect)) return;
     if (original_out) *original_out = *slot;
     *slot = detour;
     DWORD restore = 0;
     VirtualProtect(slot, sizeof(void*), old_protect, &restore);
-    if (vtable_out) *vtable_out = vtable;
 
     Logf("vtable: obj=%p slot=%u (orig=%p)", com_instance, index,
          original_out ? *original_out : nullptr);
-    return true;
-}
-
-bool VtableRestore(void** vtable, unsigned index, void* detour, void* original) {
-    void** slot = &vtable[index];
-    if (*slot != detour) return false;
-    DWORD old_protect = 0;
-    if (!VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &old_protect)) return false;
-    *slot = original;
-    DWORD restore = 0;
-    VirtualProtect(slot, sizeof(void*), old_protect, &restore);
-    return true;
 }
 
 }  // namespace tgov

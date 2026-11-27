@@ -33,7 +33,7 @@ struct Guid {
 
 bool ParseGuid(const char* s, Guid& g) {
     unsigned int t[11] = {};
-    if (std::sscanf(s, "%8lx-%4x-%4x-%2x%2x-%2x%2x%2x%2x%2x%2x", &t[0], &t[1], &t[2], &t[3],
+    if (std::sscanf(s, "%8x-%4x-%4x-%2x%2x-%2x%2x%2x%2x%2x%2x", &t[0], &t[1], &t[2], &t[3],
                     &t[4], &t[5], &t[6], &t[7], &t[8], &t[9], &t[10]) != 11)
         return false;
     g.a = t[0];
@@ -52,7 +52,6 @@ bool ParseGuid(const char* s, Guid& g) {
 
 HANDLE g_job = nullptr;
 unsigned long long g_thread_mask = 0;
-DWORD g_last_error_code = 0;
 std::vector<DWORD> g_own_thread_ids;
 
 unsigned long long BuildThreadMask() {
@@ -215,8 +214,8 @@ void ApplyJobLimits() {
         rate.CpuRate = c.cpu_rate_permille;
         rate.ControlFlags = JOB_OBJECT_CPU_RATE_CONTROL_ENABLE | JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP;
         if (!SetInformationJobObject(g_job, JobObjectCpuRateControlInformation, &rate, sizeof(rate))) {
-            g_last_error_code = GetLastError();
-            Logf("sched: cpu rate cap failed (err=%lu) - requires Windows 8+", g_last_error_code);
+            const DWORD err = GetLastError();
+            Logf("sched: cpu rate cap failed (err=%lu) - requires Windows 8+", err);
         } else {
             Logf("sched: cpu rate hard cap set to %.1f%%", c.cpu_rate_permille / 100.0);
         }

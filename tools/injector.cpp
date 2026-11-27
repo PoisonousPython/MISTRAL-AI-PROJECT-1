@@ -6,9 +6,6 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include <vector>
-
-typedef DWORD(__stdcall* FnWait)(HANDLE, DWORD);
 
 struct Args {
     enum Mode { kAttach, kLaunch } mode = kAttach;
@@ -44,15 +41,17 @@ static std::wstring AbsPathDll(const std::wstring& dll) {
     return dll;
 }
 
-static bool TargetIs32Bit(HANDLE process, bool& is32) {
+static bool RejectIf32Bit(HANDLE process) {
 #if defined(_WIN64)
     BOOL wow64 = FALSE;
-    if (!IsWow64Process(process, &wow64)) return false;
-    is32 = wow64 != FALSE;
-#else
-    is32 = true;
-#endif
+    if (!IsWow64Process(process, &wow64) || !wow64) return false;
+    std::fwprintf(stderr,
+                  L"target is a 32-bit process. The governor build here is 64-bit; "
+                  L"it cannot load into it.\n");
     return true;
+#else
+    return false;
+#endif
 }
 
 static bool InjectInto(HANDLE process, const std::wstring& dll) {
@@ -70,7 +69,7 @@ static bool InjectInto(HANDLE process, const std::wstring& dll) {
     const auto load_library = reinterpret_cast<LPTHREAD_START_ROUTINE>(
         reinterpret_cast<void*>(GetProcAddress(kernel32, "LoadLibraryW")));
     if (!load_library) {
-        std::fwprintf(stderr, L"LoadLibraryW not found in kernel32\n", GetLastError());
+        std::fwprintf(stderr, L"LoadLibraryW not found in kernel32\n");
         return false;
     }
     HANDLE thread = CreateRemoteThread(process, nullptr, 0, load_library, remote, 0, nullptr);
@@ -130,13 +129,6 @@ int wmain(int argc, wchar_t** argv) {
         std::fwprintf(stderr, L"DLL not found: %s\n", dll.c_str());
         return 1;
     }
-    const bool injector64 =
-#if defined(_WIN64)
-        true;
-#else
-        false;
-#endif
-
     STARTUPINFOW si{};
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
@@ -152,17 +144,11 @@ int wmain(int argc, wchar_t** argv) {
             return 1;
         }
         std::wprintf(L"launched %s (pid=%lu)\n", a.exe.c_str(), pi.dwProcessId);
-        if (injector64) {
-            bool target32 = false;
-            if (TargetIs32Bit(pi.hProcess, target32) && target32) {
-                std::fwprintf(stderr,
-                              L"this is a 32-bit game. The governor build here is 64-bit; "
-                              L"it cannot load into it. No changes were made.\n");
-                TerminateProcess(pi.hProcess, 1);
-                CloseHandle(pi.hProcess);
-                CloseHandle(pi.hThread);
-                return 3;
-            }
+        if (RejectIf32Bit(pi.hProcess)) {
+            TerminateProcess(pi.hProcess, 1);
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+            return 3;
         }
         std::wprintf(L"injecting %s ... ", dll.c_str());
         if (!InjectInto(pi.hProcess, dll)) {
@@ -191,15 +177,9 @@ int wmain(int argc, wchar_t** argv) {
         std::fwprintf(stderr, L"OpenProcess(pid=%lu) failed (err=%lu)\n", pid, GetLastError());
         return 1;
     }
-    if (injector64) {
-        bool target32 = false;
-        if (TargetIs32Bit(process, target32) && target32) {
-            std::fwprintf(stderr,
-                          L"target is a 32-bit process. The governor build here is 64-bit; "
-                          L"it cannot load into it.\n");
-            CloseHandle(process);
-            return 3;
-        }
+    if (RejectIf32Bit(process)) {
+        CloseHandle(process);
+        return 3;
     }
     std::wprintf(L"injecting %s into pid %lu ... ", dll.c_str(), pid);
     const bool ok = InjectInto(process, dll);
